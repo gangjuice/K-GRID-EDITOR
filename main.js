@@ -1,4 +1,14 @@
 const { app, BrowserWindow } = require("electron");
+const express = require("express");
+const path = require("path");
+
+const server = express();
+
+server.use(express.static(__dirname));
+
+server.listen(3000, () => {
+    console.log("Server started");
+});
 
 function createWindow() {
 
@@ -13,7 +23,7 @@ function createWindow() {
         }
     });
 
-    win.loadFile("index.html");
+win.loadURL("http://localhost:8000/index.html");
 }
 
 app.whenReady().then(() => {
