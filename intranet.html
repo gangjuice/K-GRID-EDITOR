@@ -138,10 +138,7 @@
 <header>
     <div style="display:flex; align-items:center; gap:15px;">
         <div class="logo">K-GRID EDITOR</div>
-        <button id="modeToggleBtn" class="tool-btn" onclick="toggleNetworkMode()" style="padding:6px 10px; font-size:12px; background:#e8f0fe; color:#1a73e8; border-color:#1a73e8;">
-            <span id="modeToggleText">🌐 사외망</span>
-        </button>
-    </div>
+</div>
     <ul class="nav-menu">
         <li class="nav-item">
             <span class="nav-link">파일</span>
@@ -459,30 +456,6 @@
     var sortCol = '';
     var sortAsc = true;
 
-    function toggleNetworkMode() {
-        let currentMode = localStorage.getItem('networkMode') || 'extranet';
-        let newMode = currentMode === 'extranet' ? 'intranet' : 'extranet';
-        localStorage.setItem('networkMode', newMode);
-
-        // 버튼 상태 즉시 업데이트
-        let text = document.getElementById('modeToggleText');
-        if (text) {
-            text.innerText = newMode === 'intranet' ? '🔒 사내망' : '🌐 사외망';
-        }
-
-        // 약간의 딜레이 후 페이지 이동
-        setTimeout(() => {
-            window.location.href = newMode === 'intranet' ? 'intranet.html' : 'index.html';
-        }, 50);
-    }
-
-    function initNetworkMode() {
-        let mode = localStorage.getItem('networkMode') || 'extranet';
-        let btn = document.getElementById('modeToggleBtn');
-        if (btn) {
-            let text = document.getElementById('modeToggleText');
-            text.innerText = mode === 'extranet' ? '🌐 사외망' : '🔒 사내망';
-        }
     }
 
     function initSettingsUI() {
@@ -523,7 +496,7 @@
         });
     }
     loadSettings();
-    initNetworkMode();
+
 
     // 모드 전환 후 도면 자동 복구
     function restoreGeoJsonFromStorage() {
