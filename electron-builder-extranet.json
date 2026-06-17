@@ -1,0 +1,27 @@
+{
+  "appId": "com.kgrid.editor.extranet",
+  "productName": "K-GRID EDITOR (사외망)",
+  "extraMetadata": {
+    "main": "main.js"
+  },
+  "directories": {
+    "output": "dist"
+  },
+  "files": [
+    "main.js",
+    "index.html",
+    "preload.js",
+    "public/**/*",
+    "data/**/*",
+    "node_modules/express/**/*",
+    "node_modules/xlsx/**/*",
+    "node_modules/leaflet/**/*"
+  ],
+  "win": {
+    "target": "portable"
+  },
+  "portable": {
+    "artifactName": "K-GRID-EDITOR-사외망-v${version}.exe"
+  },
+  "asar": true
+}

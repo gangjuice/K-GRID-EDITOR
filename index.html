@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <title>K-GRID EDITOR</title>
     <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=cr5pcd8cee"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="public/lib/xlsx/xlsx.full.min.js"></script>
     <style>
         /* ★ Flexbox 전면 도입으로 여백 붕괴 원천 차단 */
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; display: flex; flex-direction: column; font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; background: #ffffff; overflow: hidden; }
@@ -53,6 +53,21 @@
         
         #unconfirmedPanel { right: 20px; top: 20px; width: 300px; }
         #legendPanel { left: 20px; top: 20px; width: 280px; }
+        #briefingOverlay { position: fixed; top: 100px; right: 20px; width: 320px; background: white; border: 1px solid #dadce0; border-radius: 8px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: none; z-index: 1000; font-size: 12px; line-height: 1.6; }
+        #briefingOverlay .briefing-row { display: flex; justify-content: space-between; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #f0f0f0; }
+        #briefingOverlay .briefing-title { font-size: 14px; font-weight: bold; color: #202124; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #1a73e8; }
+        #briefingOverlay .briefing-label { font-weight: bold; color: #1a73e8; width: 40%; }
+        #briefingOverlay .briefing-value { color: #3c4043; text-align: right; width: 55%; word-break: break-word; }
+        #workspaceBar { position: fixed; bottom: 0; left: 0; right: 0; height: 45px; background: white; border-top: 1px solid #dadce0; display: flex; flex-direction: row; align-items: center; overflow-x: auto; overflow-y: hidden; z-index: 500; box-shadow: 0 -2px 8px rgba(0,0,0,0.05); flex-wrap: nowrap; }
+        #workspaceTabsContainer { display: flex; flex-direction: row; gap: 0; }
+        #workspaceBar::-webkit-scrollbar { height: 4px; }
+        #workspaceBar::-webkit-scrollbar-track { background: #f0f0f0; }
+        #workspaceBar::-webkit-scrollbar-thumb { background: #bdc1c6; border-radius: 2px; }
+        .workspace-tab { padding: 8px 16px; margin: 4px 2px; background: #f8f9fa; border: 1px solid #dadce0; border-radius: 4px 4px 0 0; cursor: pointer; white-space: nowrap; font-size: 13px; transition: all 0.2s; flex-shrink: 0; }
+        .workspace-tab:hover { background: #f0f0f0; }
+        .workspace-tab.active { background: white; border-bottom-color: white; color: #1a73e8; font-weight: bold; box-shadow: 0 -2px 4px rgba(0,0,0,0.1); }
+        .workspace-tab .close-btn { margin-left: 8px; cursor: pointer; color: #9aa0a6; font-weight: bold; }
+        .workspace-tab:hover .close-btn { color: #d93025; }
         .panel-item { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-radius: 4px; }
         .panel-item:hover { background: #f1f3f4; }
         .panel-badge { font-size: 11px; padding: 3px 6px; border-radius: 4px; background: #f1c40f; color: #fff; font-weight: bold; }
@@ -119,12 +134,20 @@
 <body>
 
 <header>
-    <div class="logo">K-GRID EDITOR</div>
+    <div style="display:flex; align-items:center; gap:15px;">
+        <div class="logo">K-GRID EDITOR</div>
+        <button id="modeToggleBtn" class="tool-btn" onclick="toggleNetworkMode()" style="padding:6px 10px; font-size:12px; background:#e8f0fe; color:#1a73e8; border-color:#1a73e8;">
+            <span id="modeToggleText">🌐 사외망</span>
+        </button>
+    </div>
     <ul class="nav-menu">
         <li class="nav-item">
             <span class="nav-link">파일</span>
             <div class="dropdown">
                 <a class="dropdown-item" onclick="document.getElementById('geoUpload').click()"><span class="dropdown-icon">🗺️</span>도면 레이아웃 열기 (.geojson)</a>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" onclick="saveAllData()"><span class="dropdown-icon">💾</span>저장하기 (Ctrl+S)</a>
+                <div class="dropdown-divider"></div>
                 <a class="dropdown-item" onclick="document.getElementById('excelUpload').click()"><span class="dropdown-icon">📥</span>데이터 불러오기 (.xlsx)</a>
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item" onclick="exportExcel()"><span class="dropdown-icon">📤</span>데이터 내보내기 (.xlsx)</a>
@@ -134,15 +157,19 @@
             <span class="nav-link">보기</span>
             <div class="dropdown">
                 <a class="dropdown-item" onclick="changeViewMode('status')"><span class="dropdown-icon">📋</span>상태별 기본 보기</a>
-                <a class="dropdown-item" onclick="changeViewMode('gradient')"><span class="dropdown-icon">🎨</span>공급률 그라데이션 보기</a>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" onclick="changeViewMode('gradient')"><span class="dropdown-icon">🎨</span>공급률 현황 보기</a>
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item" onclick="changeViewMode('ss')"><span class="dropdown-icon">🏭</span>변전소별 필지 보기</a>
+                <div class="dropdown-divider"></div>
                 <a class="dropdown-item" onclick="changeViewMode('dl')"><span class="dropdown-icon">⚡</span>배전선로별 필지 보기</a>
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item" id="menu-map-bg" onclick="toggleMapBg()"><span class="dropdown-icon">🗺️</span>네이버 지도 배경 끄기</a>
+                <div class="dropdown-divider"></div>
                 <a class="dropdown-item" id="menu-map-type" onclick="toggleMapType()"><span class="dropdown-icon">🌍</span>위성 지도로 전환</a>
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item" id="menu-polygon" onclick="togglePolygon()"><span class="dropdown-icon">👁️</span>토지이용계획 도면 끄기</a>
+                <div class="dropdown-divider"></div>
                 <a class="dropdown-item" id="menu-labels" onclick="toggleLabels()"><span class="dropdown-icon">🔠</span>블럭명 오버레이 켜기</a>
             </div>
         </li>
@@ -150,6 +177,7 @@
             <span class="nav-link">데이터 관리</span>
             <div class="dropdown">
                 <a class="dropdown-item" onclick="openDashboard()"><span class="dropdown-icon">📊</span>필지 데이터 대시보드</a>
+                <div class="dropdown-divider"></div>
                 <a class="dropdown-item" onclick="toggleUnconfirmedPanel()"><span class="dropdown-icon">🔍</span>미입력 필지 찾기</a>
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item" style="color:#bdc3c7; cursor:not-allowed;"><span class="dropdown-icon" style="opacity:0.5;">🖨️</span>사내 결재 리포트</a>
@@ -161,13 +189,14 @@
                 <a class="dropdown-item" onclick="openHelpModal()"><span class="dropdown-icon">❓</span>도움말 (조작법)</a>
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item" onclick="openEnvSettingsModal()"><span class="dropdown-icon">⚙️</span>환경 설정</a>
+                <div class="dropdown-divider"></div>
                 <a class="dropdown-item" onclick="openTypeSettingsModal()"><span class="dropdown-icon">⚡</span>단위 면적당 수요전력 설정</a>
             </div>
         </li>
     </ul>
     
     <div class="kepco-logo">
-        <img src="https://www.kepco.co.kr/assets/images/pages/about/policy/signature_04.svg" alt="KEPCO Logo">
+        <img src="public/lib/kepco-logo.svg" alt="KEPCO Logo">
     </div>
     
     <input type="file" id="geoUpload" accept=".geojson, .json" style="display:none;" onchange="importGeoJson(event)">
@@ -259,18 +288,18 @@
         </div>
         <div id="legendList" class="panel-list"></div>
     </div>
-</div> <div class="modal-overlay" id="helpOverlay" onclick="closeModals()"></div>
-<div class="modal-box" id="helpModal" style="max-width: 400px;">
-    <div class="modal-header">❓ 현장 에디터 조작법</div>
-    <div style="line-height: 1.8; font-size: 13px; color:#3c4043;">
-        - 🖱️ <b>지도 이동:</b> 마우스 드래그<br>
-        - 🔍 <b>확대/축소:</b> 마우스 휠<br><br>
-        - <b>우클릭 상태 변경 (순환):</b><br>
-        &nbsp;&nbsp;<span class="color-box" style="background: royalblue;"></span>송전완료 ➔ <span class="color-box" style="background: tomato;"></span>미송전 ➔ <span class="color-box" style="background: #ffffff;"></span>해당없음(무부하) ➔ <span class="color-box" style="background: #f1c40f;"></span>미입력<br><br>
-        - <b>좌클릭:</b> 부하 및 공급률(%) 상세 입력 (※ 다중선택 모드 시 선택/해제로 작동)<br><br>
-        <small style="color: #d93025; font-weight:bold;">※ 단위 부하값이 0인 용도의 필지는 자동으로 편집이 잠기며 하이라이트가 반응하지 않습니다.</small>
+
+    <div id="saveToast" style="position:fixed; bottom:60px; left:50%; transform:translateX(-50%); background:#202124; color:white; padding:10px 24px; border-radius:20px; font-size:13px; z-index:9999; opacity:0; transition:opacity 0.3s; pointer-events:none;">💾 저장 완료</div>
+
+    <div id="briefingOverlay">
+        <div style="margin-bottom: 10px; font-weight: bold; color: #1a73e8; border-bottom: 2px solid #1a73e8; padding-bottom: 8px;">📋 필지 정보</div>
+        <div id="briefingContent"></div>
     </div>
-    <div class="modal-btn-wrap" style="justify-content: flex-end;"><button class="btn btn-save" onclick="closeModals()">확인</button></div>
+</div> <div class="modal-overlay" id="helpOverlay" style="display: none;" onclick="closeModals()"></div>
+<div class="modal-box" id="helpModal" style="width: 900px; height: 700px; display: none; flex-direction: column; overflow: hidden;">
+    <div class="modal-header" style="flex-shrink: 0;">📖 K-GRID EDITOR 사용자 매뉴얼</div>
+    <div id="helpContent" style="height: 600px; overflow-y: auto; overflow-x: hidden; padding: 20px; font-size: 14px; line-height: 1.8; color: #3c4043; background-color: #fafafa; border-top: 1px solid #dadce0; border-bottom: 1px solid #dadce0; scrollbar-gutter: stable;"></div>
+    <div class="modal-btn-wrap" style="justify-content: flex-end; padding-top: 10px; flex-shrink: 0;"><button class="btn btn-save" onclick="closeModals()">닫기</button></div>
 </div>
 
 <div class="modal-overlay" id="envSettingsOverlay" onclick="closeModals()"></div>
@@ -304,9 +333,12 @@
 </div>
 
 <div class="modal-overlay" id="typeSettingsOverlay" onclick="closeModals()"></div>
-<div class="modal-box" id="typeSettingsModal" style="width: 450px;">
-    <div class="modal-header">⚡ 단위 면적당 수요전력 설정</div>
-    <div style="font-size:12px; color:#5f6368; margin-bottom:15px; padding-left:5px; background:#f8f9fa; padding:10px; border-radius:6px; border:1px solid #dadce0;">
+<div class="modal-box" id="typeSettingsModal" style="width: 500px; max-height: 80vh; overflow-y: auto;">
+    <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #dadce0; padding-bottom:12px;">
+        <span>⚡ 단위 면적당 수요전력 설정</span>
+        <button class="btn btn-save" style="padding:6px 12px; font-size:12px; background:#1a73e8;" onclick="openAddTypeModal()">➕ 유형 추가</button>
+    </div>
+    <div style="font-size:12px; color:#5f6368; margin-top:15px; margin-bottom:15px; padding-left:5px; background:#f8f9fa; padding:10px; border-radius:6px; border:1px solid #dadce0;">
         ※ 이 표에서 <b>단위 부하가 0으로 지정된 용도</b>는 시스템에서 무부하 구간으로 분류됩니다.
     </div>
     <div class="tab-header" id="settingsTabs"></div>
@@ -314,6 +346,24 @@
     <div class="modal-btn-wrap" style="justify-content:flex-end;">
         <button class="btn btn-cancel" onclick="closeModals()">취소</button>
         <button class="btn btn-save" onclick="saveTypeSettings()">저장</button>
+    </div>
+</div>
+
+<!-- 유형 추가 팝업 모달 -->
+<div class="modal-overlay" id="addTypeOverlay" onclick="closeAddTypeModal()"></div>
+<div class="modal-box" id="addTypeModal" style="width: 380px;">
+    <div class="modal-header">➕ 새 유형 추가</div>
+    <label class="modal-label">카테고리 선택</label>
+    <select id="newTypeCategory" class="modal-input" style="margin-bottom:10px;">
+        <option value="">-- 카테고리 선택 --</option>
+    </select>
+    <label class="modal-label">용도명 (blockType)</label>
+    <input type="text" id="newTypeName" class="modal-input" placeholder="예: 신규주택" style="margin-bottom:10px;">
+    <label class="modal-label">단위 수요전력 (kW/m²)</label>
+    <input type="number" id="newTypeValue" class="modal-input" step="0.01" min="0" placeholder="0.15" style="margin-bottom:10px;">
+    <div class="modal-btn-wrap" style="justify-content:flex-end;">
+        <button class="btn btn-cancel" onclick="closeAddTypeModal()">취소</button>
+        <button class="btn btn-save" onclick="addNewType()">✓ 추가</button>
     </div>
 </div>
 
@@ -332,6 +382,13 @@
         </div>
     </div>
     <div id="editCalcHint" style="font-size:11px; margin-top:6px; margin-bottom:6px; font-weight:bold;"></div>
+
+    <label style="display:flex; align-items:center; margin:12px 0; cursor:pointer; font-size:13px;">
+        <input type="checkbox" id="manualKwToggle" onchange="toggleManualKw()" style="margin-right:8px; cursor:pointer; width:16px; height:16px;">
+        <span style="color:#202124; font-weight:bold;">수동 입력</span>
+        <span style="color:#9aa0a6; font-size:11px; margin-left:6px;">(체크 시 수요 예측부하를 직접 입력할 수 있습니다)</span>
+    </label>
+
     <label class="modal-label" style="margin-top: 10px;">필지 공급률 : <span id="editRateVal" style="color:#1a73e8; font-size:16px;">0</span>%</label>
     <input type="range" id="editRate" min="0" max="100" step="10" value="0" style="width:100%; margin:5px 0; accent-color:#1a73e8;" oninput="calcLoad()">
     
@@ -368,6 +425,9 @@
     </div>
 </div>
 
+<datalist id="ssList"></datalist>
+<datalist id="dlList"></datalist>
+
 <script>
     var currentProject = "default";
     var globalGeoJson = null;
@@ -400,6 +460,32 @@
     var dashData = [];
     var sortCol = '';
     var sortAsc = true;
+
+    function toggleNetworkMode() {
+        let currentMode = localStorage.getItem('networkMode') || 'extranet';
+        let newMode = currentMode === 'extranet' ? 'intranet' : 'extranet';
+        localStorage.setItem('networkMode', newMode);
+
+        // 버튼 상태 즉시 업데이트
+        let text = document.getElementById('modeToggleText');
+        if (text) {
+            text.innerText = newMode === 'intranet' ? '🔒 사내망' : '🌐 사외망';
+        }
+
+        // 약간의 딜레이 후 페이지 이동
+        setTimeout(() => {
+            window.location.href = newMode === 'intranet' ? 'intranet.html' : 'index.html';
+        }, 50);
+    }
+
+    function initNetworkMode() {
+        let mode = localStorage.getItem('networkMode') || 'extranet';
+        let btn = document.getElementById('modeToggleBtn');
+        if (btn) {
+            let text = document.getElementById('modeToggleText');
+            text.innerText = mode === 'extranet' ? '🌐 사외망' : '🔒 사내망';
+        }
+    }
 
     function initSettingsUI() {
         let tabHtml = '', contentHtml = ''; let isFirst = true;
@@ -439,6 +525,39 @@
         });
     }
     loadSettings();
+    initNetworkMode();
+
+    // 모드 전환 후 도면 자동 복구
+    function restoreGeoJsonFromStorage() {
+        let storedGeoJson = localStorage.getItem('currentGeoJson');
+        let storedProjectName = localStorage.getItem('currentProjectName');
+        if (storedGeoJson && storedProjectName) {
+            try {
+                globalGeoJson = JSON.parse(storedGeoJson);
+                currentProject = storedProjectName;
+                document.getElementById('currentProjectName').innerText = currentProject;
+
+                // 필지 데이터도 로드
+                fetch('/api/load-data/' + currentProject)
+                    .then(res => res.json())
+                    .then(projectData => {
+                        if (projectData && typeof projectData === 'object') {
+                            for (let parcelId in projectData) {
+                                localStorage.setItem(currentProject + '_parcel_' + parcelId, JSON.stringify(projectData[parcelId]));
+                            }
+                        }
+                        // GeoJSON 렌더링
+                        map.data.addGeoJson(globalGeoJson);
+                        updateDatalists();
+                        renderUnconfirmedList();
+                        if(viewMode === 'ss' || viewMode === 'dl') buildLegend(viewMode);
+                    })
+                    .catch(err => console.log('프로젝트 데이터 로드:', err));
+            } catch(e) {
+                console.log('GeoJSON 복구 실패:', e);
+            }
+        }
+    }
 
     var map = new naver.maps.Map('map', { center: new naver.maps.LatLng(37.056, 127.048), zoom: 14, mapTypeId: naver.maps.MapTypeId.NORMAL });
     var BlankMapType = new naver.maps.ImageMapType({
@@ -449,8 +568,54 @@
     });
     map.mapTypes.set('blank', BlankMapType);
 
-    function getSafeData(parcelId) { var raw = localStorage.getItem(currentProject + '_parcel_' + parcelId); return raw ? JSON.parse(raw) : null; }
-    function setSafeData(parcelId, dataObj) { localStorage.setItem(currentProject + '_parcel_' + parcelId, JSON.stringify(dataObj)); }
+    function getSafeData(parcelId) {
+        var raw = localStorage.getItem(currentProject + '_parcel_' + parcelId);
+        return raw ? JSON.parse(raw) : null;
+    }
+
+    function saveAllData() {
+        if (!currentProject || currentProject === "default") { alert("열려있는 프로젝트 도면이 없습니다."); return; }
+        let prefix = currentProject + '_parcel_';
+        // 키 먼저 수집 후 순회 (루프 중 localStorage 변동 방지)
+        let keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            let key = localStorage.key(i);
+            if (key && key.startsWith(prefix)) keys.push(key);
+        }
+        let saves = keys.map(key => {
+            let parcelId = key.slice(prefix.length);
+            let data = JSON.parse(localStorage.getItem(key));
+            return fetch('/api/save-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectName: currentProject, parcelId, data })
+            });
+        });
+        Promise.all(saves)
+            .then(() => {
+                let toast = document.getElementById('saveToast');
+                if (toast) { toast.style.opacity = '1'; setTimeout(() => { toast.style.opacity = '0'; }, 1500); }
+            })
+            .catch(err => alert("저장 실패: " + err));
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveAllData(); }
+    });
+
+    function setSafeData(parcelId, dataObj) {
+        // localStorage에 저장 (캐시)
+        localStorage.setItem(currentProject + '_parcel_' + parcelId, JSON.stringify(dataObj));
+
+        // 로컬 디스크에 자동 저장 (Electron API)
+        if (currentProject && currentProject !== "default") {
+            fetch('/api/save-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectName: currentProject, parcelId: parcelId, data: dataObj })
+            }).catch(err => console.error("자동 저장 실패:", err));
+        }
+    }
 
     function updateDatalists() {
         let ssSet = new Set(), dlSet = new Set();
@@ -502,13 +667,72 @@
     }
 
     function getRandomColorFor(name) {
-        if (!name || name.trim() === "" || name.trim() === "미정") return "#e0e0e0"; 
+        if (!name || name.trim() === "" || name.trim() === "미정") return "#e0e0e0";
         if (!colorMapDict[name]) {
-            let hue = Math.floor(Math.random() * 360); let sat = 70 + Math.floor(Math.random() * 20); let lit = 45 + Math.floor(Math.random() * 15);
+            // 이름 기반 결정적 hash → 재시작해도 색상 동일
+            let hash = 0;
+            for (let i = 0; i < name.length; i++) { hash = ((hash << 5) - hash) + name.charCodeAt(i); hash |= 0; }
+            let hue = Math.abs(hash) % 360;
+            let sat = 65 + (Math.abs(hash >> 8) % 20);
+            let lit = 40 + (Math.abs(hash >> 16) % 20);
             colorMapDict[name] = `hsl(${hue}, ${sat}%, ${lit}%)`;
         }
         return colorMapDict[name];
     }
+
+    // ── 공통 헬퍼 함수 ──────────────────────────────────────────────────────────
+
+    // blockType + area → 자동계산 kW (반복 로직 단일화)
+    function calcAutoKw(blockType, area) {
+        if (!blockType || !area) return { kw: 0, key: "" };
+        let clean = blockType.replace(/용지|부지|시설/g, "");
+        for (let key in loadRateDict) {
+            if (blockType.includes(key) || key.includes(clean)) {
+                return { kw: Math.round(area * loadRateDict[key]), key: key };
+            }
+        }
+        return { kw: 0, key: "" };
+    }
+
+    // status 코드 → 텍스트 (단일화)
+    function getStatusText(status) {
+        if (status === 1) return "송전완료";
+        if (status === 2 || status === 0) return "미송전";
+        if (status === 3) return "무부하";
+        return "미입력";
+    }
+
+    // 레이블 마커 전체 제거
+    function clearAllMarkers() {
+        for (let i = 0; i < labelMarkers.length; i++) labelMarkers[i].setMap(null);
+        labelMarkers = [];
+    }
+
+    // 다중선택 모드 해제 (UI 포함)
+    function setMultiSelectOff() {
+        isMultiSelectMode = false;
+        selectedParcels.clear();
+        let btn = document.getElementById('btn-multi-select');
+        let icon = document.getElementById('multi-select-icon');
+        let text = document.getElementById('multi-select-text');
+        if (btn) btn.classList.remove('active');
+        if (icon) icon.innerText = "👆";
+        if (text) text.innerText = "마우스 다중 선택: OFF";
+    }
+
+    // GeoJSON blockName → feature O(1) 인덱스
+    let featureIndex = new Map();
+    function buildFeatureIndex() {
+        featureIndex.clear();
+        if (!globalGeoJson || !globalGeoJson.features) return;
+        globalGeoJson.features.forEach(f => {
+            if (!f.properties) return;
+            let name = f.properties.blockName || f.properties.zoneName;
+            if (name && !featureIndex.has(name)) featureIndex.set(name, f);
+        });
+    }
+
+    // ────────────────────────────────────────────────────────────────────────────
 
     // ★ 툴바 다중 선택 버튼 로직
     function toggleMultiSelectMode() {
@@ -558,7 +782,23 @@
         if (viewMode === 'gradient') {
             if (isNoLoad || status === 3) return { fillColor: '#ffffff', fillOpacity: 0.05, strokeColor: strokeC, strokeWeight: strokeW };
             var rate = (data && data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((status === 1) ? 100 : 0);
-            return { fillColor: getGradientColor(rate), fillOpacity: Math.min(baseOp + 0.2, 1.0), strokeColor: strokeC, strokeWeight: strokeW };
+
+            let targetOp = Math.min(baseOp + 0.2, 1.0);
+
+            // highlightedLegend가 있으면 범위 체크 (예: "0-10%", "10-20%" 등)
+            if (highlightedLegend !== null) {
+                let parts = highlightedLegend.replace('%', '').split('-');
+                let min = parseInt(parts[0]);
+                let max = parseInt(parts[1]);
+                if (rate < min || rate >= max) {
+                    targetOp = 0.05;
+                    if(!isSelected) strokeC = 'rgba(0,0,0,0.1)';
+                } else {
+                    targetOp = Math.min(baseOp + 0.4, 1.0);
+                }
+            }
+
+            return { fillColor: getGradientColor(rate), fillOpacity: targetOp, strokeColor: strokeC, strokeWeight: strokeW };
         }
         else if (viewMode === 'ss' || viewMode === 'dl') {
             let targetName = "";
@@ -587,20 +827,58 @@
         }
     });
 
+    // 모드 전환 후 도면 복구 (모드 전환 시에만 호출)
+    // 프로그램 시작 시에는 호출하지 않음 (빈 화면 유지)
+
     map.data.addListener('mouseover', function(e) {
-        if(!isPolygonVisible) return; 
+        if(!isPolygonVisible) return;
         var blockType = e.feature.getProperty('blockType') || e.feature.getProperty('용도') || e.feature.getProperty('ZONE_NM') || "미상";
-        if (isAutoNoLoad(blockType) && isNoLoadLocked) return; 
+        if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
 
         var targetName = e.feature.getProperty('blockName') || e.feature.getProperty('zoneName');
         if (!targetName) return;
+
+        // 브리핑 오버레이 표시
+        let data = getSafeData(targetName) || { customArea: null, loadKw: null, ssName: "", dlName: "", supplyRate: 0, status: 99, memo: "" };
+        let statusText = (data.status === 1) ? "송전완료" : (data.status === 2 || data.status === 0) ? "미송전" : (data.status === 3) ? "무부하" : "미입력";
+        let area = data.customArea || e.feature.getProperty('area') || e.feature.getProperty('면적') || 0;
+
+        // loadKw가 없으면 자동계산값 사용 (모달과 동일 로직)
+        let kw = data.loadKw || 0;
+        if (!kw && data.status === 1) {
+            let blockTypeHover = e.feature.getProperty('blockType') || e.feature.getProperty('용도') || e.feature.getProperty('ZONE_NM') || "";
+            for (let key in loadRateDict) {
+                let clean = blockTypeHover.replace(/용지|부지|시설/g, "");
+                if (blockTypeHover.includes(key) || key.includes(clean)) { kw = Math.round(area * loadRateDict[key]); break; }
+            }
+        }
+
+        let supplied = kw * (data.supplyRate / 100) || 0;
+        let remain = kw - supplied || 0;
+
+        let briefingHtml = `
+            <div class="briefing-title">${targetName}</div>
+            <div class="briefing-row"><span class="briefing-label">용도:</span><span class="briefing-value">${blockType}</span></div>
+            <div class="briefing-row"><span class="briefing-label">필지 면적:</span><span class="briefing-value">${area.toFixed(0)}㎡</span></div>
+            <div class="briefing-row"><span class="briefing-label">수요부하:</span><span class="briefing-value">${kw.toFixed(1)}kW</span></div>
+            <div class="briefing-row"><span class="briefing-label">공급률:</span><span class="briefing-value">${data.supplyRate}%</span></div>
+            <div class="briefing-row"><span class="briefing-label">공급완료:</span><span class="briefing-value">${supplied.toFixed(1)}kW</span></div>
+            <div class="briefing-row"><span class="briefing-label">미송전:</span><span class="briefing-value">${remain.toFixed(1)}kW</span></div>
+            <div class="briefing-row"><span class="briefing-label">상태:</span><span class="briefing-value">${statusText}</span></div>
+            <div class="briefing-row"><span class="briefing-label">변전소:</span><span class="briefing-value">${data.ssName || "미정"}</span></div>
+            <div class="briefing-row"><span class="briefing-label">선로:</span><span class="briefing-value">${data.dlName || "미정"}</span></div>
+            ${data.memo ? `<div class="briefing-row"><span class="briefing-label">메모:</span><span class="briefing-value">${data.memo}</span></div>` : ''}
+        `;
+        document.getElementById('briefingContent').innerHTML = briefingHtml;
+        document.getElementById('briefingOverlay').style.display = 'block';
+
         map.data.getAllFeature().forEach(function(f) {
             if ((f.getProperty('blockName') || f.getProperty('zoneName')) === targetName) {
                 let isSelected = selectedParcels.has(targetName);
-                map.data.overrideStyle(f, { 
-                    strokeWeight: isSelected ? 5 : 3, 
-                    strokeColor: isSelected ? '#b31412' : '#000000', 
-                    fillOpacity: Math.min((1 - globalOpacity/100) + 0.3, 0.95) 
+                map.data.overrideStyle(f, {
+                    strokeWeight: isSelected ? 5 : 3,
+                    strokeColor: isSelected ? '#b31412' : '#000000',
+                    fillOpacity: Math.min((1 - globalOpacity/100) + 0.3, 0.95)
                 });
             }
         });
@@ -609,6 +887,10 @@
     map.data.addListener('mouseout', function(e) {
         var targetName = e.feature.getProperty('blockName') || e.feature.getProperty('zoneName');
         if (!targetName) return;
+
+        // 브리핑 오버레이 숨김
+        document.getElementById('briefingOverlay').style.display = 'none';
+
         map.data.getAllFeature().forEach(function(f) {
             if ((f.getProperty('blockName') || f.getProperty('zoneName')) === targetName) map.data.revertStyle(f);
         });
@@ -651,10 +933,42 @@
         if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
 
         var data = getSafeData(parcelId) || { customArea: null, loadKw: null, ssName: "", dlName: "", supplyRate: 0, status: 99, memo: "" };
-        let st = data.status; if (st === 99) st = 0; data.status = (st + 1) % 4; if (data.status === 0) data.status = 99;
+        // 사이클: 99(노랑) → 1(파랑) → 2(빨강) → 99
+        let st = data.status;
+        if (st === 99) data.status = 1;
+        else if (st === 1) data.status = 2;
+        else data.status = 99;
+
+        if (data.status === 1) {
+            // 송전 완료 (파란색): 공급률 100% + 수요부하 자동 계산 저장 (동기적으로)
+            data.supplyRate = 100;
+            if (!data.manualKw) {
+                let area = data.customArea || e.feature.getProperty('area') || e.feature.getProperty('면적') || 0;
+                // GeoJSON에서 동기적으로 면적 계산 (비동기 toGeoJson 경쟁 조건 방지)
+                if (!area && globalGeoJson && globalGeoJson.features) {
+                    for (let f of globalGeoJson.features) {
+                        if ((f.properties.blockName || f.properties.zoneName) === parcelId && f.geometry) {
+                            area = calculateAreaM2(f.geometry.coordinates); break;
+                        }
+                    }
+                }
+                let cv = 0;
+                for (let key in loadRateDict) {
+                    let clean = blockType.replace(/용지|부지|시설/g, "");
+                    if (blockType.includes(key) || key.includes(clean)) { cv = Math.round(area * loadRateDict[key]); break; }
+                }
+                if (cv > 0) { data.loadKw = cv; data.manualKw = false; }
+            }
+        } else if (data.status === 2) {
+            // 미송전 (빨간색): 공급률 0%, 수동입력값 초기화
+            data.supplyRate = 0;
+            data.loadKw = null;
+            data.manualKw = false;
+        }
+
         setSafeData(parcelId, data);
         map.data.setStyle(map.data.getStyle());
-        renderUnconfirmedList(); 
+        renderUnconfirmedList();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
     });
 
@@ -666,33 +980,62 @@
     function changeViewMode(mode) {
         viewMode = mode; highlightedLegend = null; map.data.setStyle(map.data.getStyle());
         let legendPanel = document.getElementById('legendPanel');
-        if (mode === 'ss' || mode === 'dl') {
-            document.getElementById('legendTitle').innerText = (mode === 'ss') ? "🏭 변전소별 범례" : "⚡ 배전선로별 범례";
+        if (mode === 'ss' || mode === 'dl' || mode === 'gradient') {
+            if (mode === 'ss') document.getElementById('legendTitle').innerText = "🏭 변전소별 범례";
+            else if (mode === 'dl') document.getElementById('legendTitle').innerText = "⚡ 배전선로별 범례";
+            else if (mode === 'gradient') document.getElementById('legendTitle').innerText = "📊 공급률 현황 범례";
             buildLegend(mode); legendPanel.style.display = 'flex';
         } else { legendPanel.style.display = 'none'; }
     }
 
     function buildLegend(mode) {
-        let nameSet = new Set();
-        if(globalGeoJson && globalGeoJson.features){
-            globalGeoJson.features.forEach(f => {
-                let bName = f.properties ? (f.properties.blockName || f.properties.zoneName) : null;
-                if(!bName) return;
-                let data = getSafeData(bName);
-                if(data) { let val = (mode === 'ss') ? data.ssName : data.dlName; if(val && val.trim() !== "") nameSet.add(val.trim()); }
-            });
-        }
         let listHtml = '';
-        Array.from(nameSet).sort().forEach(name => {
-            let color = getRandomColorFor(name); let activeClass = (highlightedLegend === name) ? 'active' : '';
-            listHtml += `<div class="legend-item ${activeClass}" onclick="toggleHighlightLegend('${name}')">
-                <div class="legend-color" style="background:${color};"></div>${name}
+
+        if (mode === 'gradient') {
+            // 공급률 현황 범례 (10% 단위)
+            const ranges = [
+                { min: 0, max: 10, label: '0-10%' },
+                { min: 10, max: 20, label: '10-20%' },
+                { min: 20, max: 30, label: '20-30%' },
+                { min: 30, max: 40, label: '30-40%' },
+                { min: 40, max: 50, label: '40-50%' },
+                { min: 50, max: 60, label: '50-60%' },
+                { min: 60, max: 70, label: '60-70%' },
+                { min: 70, max: 80, label: '70-80%' },
+                { min: 80, max: 90, label: '80-90%' },
+                { min: 90, max: 100, label: '90-100%' }
+            ];
+
+            ranges.forEach(range => {
+                let color = getGradientColor(range.min);
+                let activeClass = (highlightedLegend === range.label) ? 'active' : '';
+                listHtml += `<div class="legend-item ${activeClass}" onclick="toggleHighlightLegend('${range.label}')">
+                    <div class="legend-color" style="background:${color};"></div>${range.label}
+                </div>`;
+            });
+        } else {
+            // 변전소별/배전선로별 범례
+            let nameSet = new Set();
+            if(globalGeoJson && globalGeoJson.features){
+                globalGeoJson.features.forEach(f => {
+                    let bName = f.properties ? (f.properties.blockName || f.properties.zoneName) : null;
+                    if(!bName) return;
+                    let data = getSafeData(bName);
+                    if(data) { let val = (mode === 'ss') ? data.ssName : data.dlName; if(val && val.trim() !== "") nameSet.add(val.trim()); }
+                });
+            }
+            Array.from(nameSet).sort().forEach(name => {
+                let color = getRandomColorFor(name); let activeClass = (highlightedLegend === name) ? 'active' : '';
+                listHtml += `<div class="legend-item ${activeClass}" onclick="toggleHighlightLegend('${name}')">
+                    <div class="legend-color" style="background:${color};"></div>${name}
+                </div>`;
+            });
+            let noneActive = (highlightedLegend === "") ? 'active' : '';
+            listHtml += `<div class="legend-item ${noneActive}" onclick="toggleHighlightLegend('')">
+                <div class="legend-color" style="background:#e0e0e0;"></div>미정 (미입력)
             </div>`;
-        });
-        let noneActive = (highlightedLegend === "") ? 'active' : '';
-        listHtml += `<div class="legend-item ${noneActive}" onclick="toggleHighlightLegend('')">
-            <div class="legend-color" style="background:#e0e0e0;"></div>미정 (미입력)
-        </div>`;
+        }
+
         document.getElementById('legendList').innerHTML = listHtml;
     }
     function closeLegendPanel() { document.getElementById('legendPanel').style.display = 'none'; highlightedLegend = null; map.data.setStyle(map.data.getStyle()); }
@@ -950,6 +1293,8 @@
     }
 
     function renderDashboard() {
+        if (!globalGeoJson) return;
+        if (dashData.length === 0) { buildAndRenderDashboard(); return; }
         let fltId = document.getElementById('fltId').value.toLowerCase();
         let fltName = document.getElementById('fltName').value.toLowerCase();
         let fltType = document.getElementById('fltTypeSelect').value;
@@ -1018,19 +1363,57 @@
 
     function importGeoJson(event) {
         var file = event.target.files[0]; if (!file) return;
-        
+
+        // 현재 편집 중인 필지 정보 자동 저장
+        if (currentEditingParcel) {
+            saveParcelData();
+        }
+
         currentProject = file.name.replace(/\.[^/.]+$/, "");
         document.getElementById('currentProjectName').innerText = currentProject;
+
+        // 로컬 디스크에서 프로젝트 데이터 로드 (localStorage 복구)
+        fetch('/api/load-data/' + currentProject)
+            .then(res => res.json())
+            .then(projectData => {
+                if (projectData && typeof projectData === 'object') {
+                    for (let parcelId in projectData) {
+                        localStorage.setItem(currentProject + '_parcel_' + parcelId, JSON.stringify(projectData[parcelId]));
+                    }
+                }
+            })
+            .catch(err => console.log('프로젝트 데이터 로드:', err));
 
         var reader = new FileReader();
         reader.onload = function(e) {
             try {
                 var cleanText = e.target.result.replace(/^\uFEFF/, '').trim();
-                globalGeoJson = JSON.parse(cleanText);
-                if (map.data.getAllFeature) {
-                    var features = map.data.getAllFeature();
-                    for(var i=0; i<features.length; i++) map.data.removeFeature(features[i]);
+
+                // \uC774\uC804 GeoJSON \uBAA8\uB450 \uC81C\uAC70 (\uBA3C\uC800 \uBC30\uC5F4\uC5D0 \uC218\uC9D1 \uD6C4 \uC81C\uAC70)
+                var featuresToRemove = [];
+                if (map.data && map.data.forEach) {
+                    map.data.forEach(function(feature) {
+                        featuresToRemove.push(feature);
+                    });
                 }
+                for (var idx = 0; idx < featuresToRemove.length; idx++) {
+                    map.data.removeFeature(featuresToRemove[idx]);
+                }
+                clearAllMarkers();
+
+                // \uC0C8 GeoJSON \uB85C\uB4DC
+                globalGeoJson = JSON.parse(cleanText);
+                buildFeatureIndex();
+
+                // GeoJSON\uC744 localStorage\uC5D0 \uC800\uC7A5 (\uD0ED \uC804\uD658/\uBAA8\uB4DC \uC804\uD658 \uC2DC \uBCF5\uAD6C\uC6A9)
+                // \uAC01 \uD504\uB85C\uC81D\uD2B8\uBCC4\uB85C GeoJSON \uC800\uC7A5
+                localStorage.setItem('geoJson_' + currentProject, JSON.stringify(globalGeoJson));
+
+                localStorage.setItem('currentProjectName', currentProject);
+
+                // \uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4 \uD0ED \uCD94\uAC00
+                addProjectTab(currentProject);
+
                 map.data.addGeoJson(globalGeoJson);
                 let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180; let hasCoords = false;
                 function extractCoords(coords) {
@@ -1081,7 +1464,7 @@
                 var ssName = row["변전소명"] || ""; var dlName = row["배전선로"] || ""; var memo = row["메모"] || "";
                 var customArea = parseFloat(row["필지면적(m2)"]) || null;
                 
-                setSafeData(blockName, { customArea: customArea, loadKw: loadKw, ssName: ssName, dlName: dlName, memo: memo, supplyRate: supplyRate, status: status });
+                setSafeData(blockName, { customArea: customArea, loadKw: loadKw, manualKw: loadKw !== null, ssName: ssName, dlName: dlName, memo: memo, supplyRate: supplyRate, status: status });
             });
             map.data.setStyle(map.data.getStyle()); updateDatalists(); renderUnconfirmedList();
             if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
@@ -1141,7 +1524,124 @@
     }
 
     function closeModals() { document.querySelectorAll('.modal-overlay, .modal-box').forEach(el => el.style.display = 'none'); currentEditingParcel = null; }
-    function openHelpModal() { document.getElementById('helpOverlay').style.display = 'block'; document.getElementById('helpModal').style.display = 'block'; }
+
+    function openHelpModal() {
+        const helpContent = document.getElementById('helpContent');
+        if (!helpContent) {
+            console.error('helpContent 요소를 찾을 수 없습니다!');
+            return;
+        }
+        console.log('매뉴얼 표시 중...');
+        helpContent.innerHTML = `
+            <h2 style="color:#1a73e8; border-bottom: 3px solid #1a73e8; padding-bottom: 15px; margin-bottom: 25px; font-size: 22px; font-weight: bold;">K-GRID EDITOR 사용자 매뉴얼</h2>
+
+            <h3 style="color:#202124; margin-top: 25px; margin-bottom: 15px; font-size: 18px; font-weight: bold;">🎯 기본 기능</h3>
+            <p><b>🗺️ 도면 열기:</b> 파일 → 도면 레이아웃 열기 → GeoJSON 파일 선택</p>
+            <p><b>📥 데이터 불러오기:</b> 파일 → 데이터 불러오기 → XLSX 파일 선택</p>
+            <p><b>📤 데이터 내보내기:</b> 파일 → 데이터 내보내기 → 작업 데이터 저장</p>
+
+            <h3 style="color:#202124; margin-top:20px;">📍 필지 작업</h3>
+            <p><b>🔵 좌클릭:</b> 필지 정보 입력/편집</p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li>필지 면적 (m²)</li>
+                <li>수요 예측부하 (kW)</li>
+                <li>공급률 조정 (0~100%)</li>
+                <li>변전소명 / 선로명 입력</li>
+                <li>메모 추가</li>
+            </ul>
+            <p><b>🔴 우클릭:</b> 필지 상태 순환 변경</p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li style="color: royalblue;"><b>송전완료</b> → </li>
+                <li style="color: tomato;"><b>미송전</b> → </li>
+                <li style="color: #666;"><b>무부하</b> → </li>
+                <li style="color: #f1c40f;"><b>미입력</b></li>
+            </ul>
+
+            <h3 style="color:#202124; margin-top:20px;">👆 다중 선택 모드</h3>
+            <p>마우스 다중 선택을 <b style="color:#d93025;">ON</b>으로 설정하면:</p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li>여러 필지를 클릭하여 선택 (빨간 테두리)</li>
+                <li>선택 필지 일괄 변경 버튼으로 한번에 수정</li>
+                <li>변전소명, 선로명, 메모 일괄 입력 가능</li>
+            </ul>
+
+            <h3 style="color:#202124; margin-top:20px;">📊 대시보드</h3>
+            <p><b>데이터 관리 → 필지 데이터 대시보드</b></p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li><b>정렬:</b> 각 열 헤더 클릭</li>
+                <li><b>필터링:</b> 검색 상자로 필지 검색</li>
+                <li><b>일괄 변경:</b> 체크박스로 선택 후 수정</li>
+                <li><b>지도 이동:</b> 행 더블클릭하면 지도 자동 이동</li>
+            </ul>
+
+            <h3 style="color:#202124; margin-top:20px;">⚙️ 환경 설정</h3>
+            <p><b>기타 → 환경 설정</b></p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li><b>도면 투명도:</b> 0% (선명) ~ 100% (투명)</li>
+                <li><b>편집 잠금:</b> 무부하 구간 수정 방지</li>
+            </ul>
+
+            <h3 style="color:#202124; margin-top:20px;">⚡ 수요전력 설정</h3>
+            <p><b>기타 → 단위 면적당 수요전력 설정</b></p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li>용도별 단위 수요전력값 설정 (kW/m²)</li>
+                <li>필지 면적 자동 계산 기능</li>
+                <li>새 용도 추가 가능</li>
+            </ul>
+
+            <h3 style="color:#202124; margin-top:20px;">🌐 사외망 / 🔒 사내망</h3>
+            <p><b>상단 버튼으로 두 환경 전환:</b></p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li><b>사외망:</b> 네이버 지도 + 인터넷 필요 (초기 설계)</li>
+                <li><b>사내망:</b> Leaflet 오프라인 + 인터넷 불필요 (현장 작업)</li>
+                <li><b>데이터 동기화:</b> XLSX로 두 환경 간 자유로운 이동</li>
+            </ul>
+
+            <h3 style="color:#202124; margin-top:20px;">💾 자동 저장</h3>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li>모든 작업이 <b>자동으로 저장</b>됨</li>
+                <li><b>로컬스토리지</b> (브라우저 임시)</li>
+                <li><b>로컬 디스크</b> (data/ 폴더 영구 저장)</li>
+                <li>프로그램 종료 후 재실행해도 데이터 유지</li>
+            </ul>
+
+            <h3 style="color:#202124; margin-top:20px;">🎨 보기 모드</h3>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li><b>상태별 기본 보기:</b> 송전완료/미송전/무부하/미입력</li>
+                <li><b>공급률 그라데이션:</b> 공급률 시각화</li>
+                <li><b>변전소별 보기:</b> 변전소별 색상 구분</li>
+                <li><b>배전선로별 보기:</b> 선로별 색상 구분</li>
+            </ul>
+
+            <h3 style="color:#202124; margin-top:20px;">❓ 자주 묻는 질문</h3>
+            <p><b>Q: 필지 클릭이 안 됨</b><br>
+            A: 환경 설정에서 "무부하 구간 편집 잠금" 확인. 단위 부하가 0인 용도는 편집 불가</p>
+
+            <p><b>Q: 데이터가 저장되지 않음</b><br>
+            A: data/ 폴더 파일 권한 확인. 프로그램 재실행 후 재시도</p>
+
+            <p><b>Q: 사외망/사내망 전환 안 됨</b><br>
+            A: 버튼 재클릭. 필요시 F5로 새로고침</p>
+
+            <p><b>Q: 이전 작업 데이터 복구</b><br>
+            A: 도면 로드 후 → 파일 → 데이터 불러오기 → 저장한 XLSX 선택</p>
+
+            <h3 style="color:#202124; margin-top:20px;">⚠️ 주의사항</h3>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li>GeoJSON 파일은 수정하지 마세요 (도면 좌표)</li>
+                <li>중요한 작업마다 데이터 내보내기로 백업</li>
+                <li>XLSX 파일은 Excel에서 직접 수정하지 마세요</li>
+            </ul>
+
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #dadce0; font-size: 12px; color: #80868b;">
+                <p>📖 <b>전체 매뉴얼:</b> K-GRID-EDITOR 폴더의 MANUAL.md 파일 참고</p>
+                <p>🎉 K-GRID EDITOR v1.0 | 2026년 6월</p>
+            </div>
+        `;
+
+        document.getElementById('helpOverlay').style.display = 'block';
+        document.getElementById('helpModal').style.display = 'block';
+    }
     
     function openEnvSettingsModal() {
         document.getElementById('set-opacity').value = globalOpacity;
@@ -1150,8 +1650,26 @@
         document.getElementById('envSettingsOverlay').style.display = 'block'; document.getElementById('envSettingsModal').style.display = 'block'; 
     }
 
-    function openTypeSettingsModal() { 
-        document.getElementById('typeSettingsOverlay').style.display = 'block'; document.getElementById('typeSettingsModal').style.display = 'block'; 
+    function openTypeSettingsModal() {
+        document.getElementById('typeSettingsOverlay').style.display = 'block';
+        document.getElementById('typeSettingsModal').style.display = 'block';
+    }
+
+    function openAddTypeModal() {
+        let categorySelect = document.getElementById('newTypeCategory');
+        categorySelect.innerHTML = '<option value="">-- 카테고리 선택 --</option>';
+        for (let cat in rateCategories) {
+            categorySelect.innerHTML += `<option value="${cat}">${cat}</option>`;
+        }
+        document.getElementById('newTypeName').value = '';
+        document.getElementById('newTypeValue').value = '';
+        document.getElementById('addTypeOverlay').style.display = 'block';
+        document.getElementById('addTypeModal').style.display = 'block';
+    }
+
+    function closeAddTypeModal() {
+        document.getElementById('addTypeOverlay').style.display = 'none';
+        document.getElementById('addTypeModal').style.display = 'none';
     }
 
     function openBatchModal() {
@@ -1174,9 +1692,29 @@
         map.data.setStyle(map.data.getStyle()); closeModals();
     }
 
-    function saveTypeSettings() { 
+    function addNewType() {
+        let category = document.getElementById('newTypeCategory').value.trim();
+        let typeName = document.getElementById('newTypeName').value.trim();
+        let typeValue = parseFloat(document.getElementById('newTypeValue').value);
+
+        if (!category) { alert('카테고리를 선택해주세요.'); return; }
+        if (!typeName) { alert('용도명을 입력해주세요.'); return; }
+        if (isNaN(typeValue) || typeValue < 0) { alert('유효한 수요전력 값을 입력해주세요.'); return; }
+
+        if (!rateCategories[category]) rateCategories[category] = {};
+        if (rateCategories[category][typeName]) { alert('이미 존재하는 용도명입니다.'); return; }
+
+        rateCategories[category][typeName] = typeValue;
+        loadRateDict[typeName] = typeValue;
+
+        closeAddTypeModal();
+        initSettingsUI();
+        alert('✓ ' + typeName + '이(가) ' + category + '에 추가되었습니다.');
+    }
+
+    function saveTypeSettings() {
         document.querySelectorAll('.conf-rate').forEach(input => { localStorage.setItem('rate_' + input.getAttribute('data-key'), input.value); });
-        loadSettings(); map.data.setStyle(map.data.getStyle()); renderUnconfirmedList(); closeModals(); 
+        loadSettings(); map.data.setStyle(map.data.getStyle()); renderUnconfirmedList(); closeModals();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
     }
     
@@ -1199,21 +1737,52 @@
         closeModals(); alert("선택된 필지들에 데이터가 일괄 적용되었습니다!");
     }
 
-    function resetAllData() { 
+    function resetAllData() {
         if (currentProject === "default") { alert("열려있는 프로젝트 도면이 없습니다."); return; }
-        if (confirm(`정말로 [${currentProject}] 프로젝트의 모든 작업 데이터를 삭제하시겠습니까?\n(타 현장 데이터 및 기본 설정은 유지됩니다)`)) { 
+        if (confirm(`정말로 [${currentProject}] 프로젝트의 모든 작업 데이터를 삭제하시겠습니까?\n(타 현장 데이터 및 기본 설정은 유지됩니다)`)) {
+            // 1️⃣ 로컬 디스크의 필지 데이터 초기화
+            fetch('/api/clear-data/' + currentProject, { method: 'POST' })
+                .then(res => res.json())
+                .catch(err => console.log('로컬 디스크 초기화 실패:', err));
+
+            // 2️⃣ localStorage 필지 데이터 삭제
             let keysToRemove = [];
             for (let i = 0; i < localStorage.length; i++) {
                 let key = localStorage.key(i);
                 if (key.startsWith(currentProject + '_parcel_')) keysToRemove.push(key);
             }
             keysToRemove.forEach(k => localStorage.removeItem(k));
-            map.data.setStyle(map.data.getStyle()); closeModals(); updateDatalists(); renderUnconfirmedList(); 
-            if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard(); 
-            if(viewMode==='ss'||viewMode==='dl') buildLegend(viewMode); 
-        } 
+
+            // 현재 GeoJSON 상태를 localStorage에 다시 저장 (탭 전환 시 초기화 전 상태 복구 방지)
+            if (globalGeoJson) {
+                localStorage.setItem('geoJson_' + currentProject, JSON.stringify(globalGeoJson));
+            }
+
+            map.data.setStyle(map.data.getStyle()); closeModals(); updateDatalists(); renderUnconfirmedList();
+            if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
+            if(viewMode==='ss'||viewMode==='dl') buildLegend(viewMode);
+        }
     }
     
+    function toggleManualKw() {
+        let toggle = document.getElementById('manualKwToggle').checked;
+        let kwInput = document.getElementById('editKw');
+
+        if (toggle) {
+            kwInput.removeAttribute('disabled');
+            kwInput.removeAttribute('readonly');
+            kwInput.style.backgroundColor = 'white';
+            kwInput.style.color = '#202124';
+            kwInput.focus();
+        } else {
+            kwInput.setAttribute('disabled', true);
+            kwInput.style.backgroundColor = '#f5f5f5';
+            kwInput.style.color = '#9aa0a6';
+            let calcVal = localStorage.getItem('temp_calcKw') || '';
+            kwInput.value = calcVal;
+        }
+    }
+
     function calcLoad() {
         let kw = parseFloat(document.getElementById('editKw').value) || 0; let rate = parseInt(document.getElementById('editRate').value) || 0;
         document.getElementById('editRateVal').innerText = rate; let supplied = kw * (rate / 100); let unsupplied = kw - supplied;
@@ -1226,52 +1795,103 @@
             let cleanType = currentParcelType.replace(/용지|부지|시설/g, "");
             if (currentParcelType.includes(key) || key.includes(cleanType)) { calcVal = Math.round(newArea * loadRateDict[key]); matchedKey = key; break; }
         }
+        // 자동 계산값 항상 갱신 (체크박스 해제 복원용)
+        localStorage.setItem('temp_calcKw', calcVal > 0 ? calcVal : '');
         let hintEl = document.getElementById('editCalcHint');
+        let isManual = document.getElementById('manualKwToggle').checked;
         if (matchedKey !== "") {
-            document.getElementById('editKw').value = calcVal; hintEl.innerText = `💡 면적 변경 반영: ${newArea.toLocaleString()} m² × ${loadRateDict[matchedKey]} (${matchedKey} 규정)`; hintEl.style.color = "#1a73e8";
+            if (!isManual) document.getElementById('editKw').value = calcVal;  // 자동 모드일 때만 표시 업데이트
+            hintEl.innerText = `💡 면적 변경 반영: ${newArea.toLocaleString()} m² × ${loadRateDict[matchedKey]} (${matchedKey} 규정)`; hintEl.style.color = "#1a73e8";
         } else { hintEl.innerText = "⚠️ 변경된 면적에 적용할 자동 용도 규정이 없습니다."; hintEl.style.color = "#d93025"; }
         calcLoad();
     }
 
-    function openEditModal(blockName, blockType, calculatedArea, data) { 
-        currentEditingParcel = blockName; currentParcelType = blockType; 
-        document.getElementById('editTitle').innerText = blockName + " 상세정보"; document.getElementById('editType').innerText = "용도 : " + (blockType || "미상"); 
+    function openEditModal(blockName, blockType, calculatedArea, data) {
+        currentEditingParcel = blockName; currentParcelType = blockType;
+        document.getElementById('editTitle').innerText = blockName + " 상세정보";
+        document.getElementById('editType').innerText = "용도 : " + (blockType || "미상");
 
         let finalArea = (data.customArea !== null && data.customArea !== undefined && data.customArea > 0) ? data.customArea : calculatedArea;
         document.getElementById('editAreaInput').value = finalArea;
 
+        // 자동 계산값 (면적 × 규정)
         let calcVal = 0; let matchedKey = "";
         for (let key in loadRateDict) {
             let cleanType = blockType.replace(/용지|부지|시설/g, "");
             if (blockType.includes(key) || key.includes(cleanType)) { calcVal = Math.round(finalArea * loadRateDict[key]); matchedKey = key; break; }
         }
-        
-        let finalKw = 0; let hintEl = document.getElementById('editCalcHint');
-        
-        if (data.loadKw !== null && data.loadKw !== undefined && data.loadKw > 0) {
-            finalKw = data.loadKw; hintEl.innerText = "✓ 기존 수동 입력 부하값 적용됨"; hintEl.style.color = "#5f6368";
-        } else if (matchedKey !== "") {
-            finalKw = calcVal; hintEl.innerText = `💡 ${finalArea.toLocaleString()} m² × ${loadRateDict[matchedKey]} (${matchedKey} 규정 자동 계산)`; hintEl.style.color = "#1a73e8";
-        } else if (data.loadKw === 0) {
-            finalKw = 0; hintEl.innerText = "⚠️ 적용할 용도 규정이 없습니다. (기존 0값 유지)"; hintEl.style.color = "#d93025";
+
+        // 자동 계산값 저장 (체크박스 해제 시 복원용)
+        localStorage.setItem('temp_calcKw', calcVal > 0 ? calcVal : '');
+
+        let hintEl = document.getElementById('editCalcHint');
+        let kwInput = document.getElementById('editKw');
+        let isManual = data.manualKw === true;  // 명시적으로 수동 입력된 경우만
+
+        if (isManual && data.loadKw > 0) {
+            // 수동 입력값이 있는 경우: 수동값 표시, 체크박스 체크, 수정 가능
+            kwInput.value = data.loadKw;
+            kwInput.disabled = false;
+            kwInput.style.backgroundColor = 'white';
+            document.getElementById('manualKwToggle').checked = true;
+            hintEl.innerText = "✓ 수동 입력 부하값 적용 중";
+            hintEl.style.color = "#5f6368";
+        } else if (data.status === 1) {
+            // 송전 완료 (파란색): 자동 계산값 표시, 체크박스 미체크, 수정 불가
+            kwInput.value = calcVal > 0 ? calcVal : "";
+            kwInput.disabled = true;
+            kwInput.style.backgroundColor = '#f5f5f5';
+            document.getElementById('manualKwToggle').checked = false;
+            if (matchedKey !== "") {
+                hintEl.innerText = `💡 ${finalArea.toLocaleString()} m² × ${loadRateDict[matchedKey]} (${matchedKey} 규정 자동 계산)`;
+                hintEl.style.color = "#1a73e8";
+            } else {
+                hintEl.innerText = "⚠️ 용도 규정 없음 - 수동 입력 체크박스를 사용해 직접 입력하세요.";
+                hintEl.style.color = "#d93025";
+            }
         } else {
-            hintEl.innerText = "⚠️ 일치하는 용도 규정이 없으므로 부하량을 직접 작성해 주세요."; hintEl.style.color = "#d93025";
+            // 미입력/기타 (노란색 등): 값 비어있음, 체크박스 미체크, 수정 불가
+            kwInput.value = "";
+            kwInput.disabled = true;
+            kwInput.style.backgroundColor = '#f5f5f5';
+            document.getElementById('manualKwToggle').checked = false;
+            hintEl.innerText = "ℹ️ 우클릭으로 필지 상태를 송전완료로 변경하면 수요부하가 자동 계산됩니다.";
+            hintEl.style.color = "#9aa0a6";
         }
-        
-        document.getElementById('editKw').value = (finalKw !== null && finalKw !== "") ? finalKw : ""; 
-        document.getElementById('editSs').value = data.ssName || ""; document.getElementById('editDl').value = data.dlName || ""; document.getElementById('editMemo').value = data.memo || ""; 
-        var rate = data.supplyRate !== undefined ? data.supplyRate : (data.status === 1 ? 100 : 0); document.getElementById('editRate').value = rate; 
+
+        document.getElementById('editSs').value = data.ssName || "";
+        document.getElementById('editDl').value = data.dlName || "";
+        document.getElementById('editMemo').value = data.memo || "";
+        var rate = data.supplyRate !== undefined ? data.supplyRate : 0;
+        document.getElementById('editRate').value = rate;
         localStorage.setItem('temp_status', data.status); calcLoad();
-        document.getElementById('editOverlay').style.display = 'block'; document.getElementById('editModal').style.display = 'block'; 
+        document.getElementById('editOverlay').style.display = 'block';
+        document.getElementById('editModal').style.display = 'block';
     }
     
-    function saveParcelData() { 
-        if (!currentEditingParcel) return; let kwVal = document.getElementById('editKw').value;
-        var data = { 
-            customArea: parseFloat(document.getElementById('editAreaInput').value) || 0, loadKw: (kwVal !== "") ? parseFloat(kwVal) : null, 
-            ssName: document.getElementById('editSs').value, dlName: document.getElementById('editDl').value, memo: document.getElementById('editMemo').value,
-            supplyRate: parseInt(document.getElementById('editRate').value), status: parseInt(localStorage.getItem('temp_status')) || 99 
-        }; 
+    function saveParcelData() {
+        if (!currentEditingParcel) return;
+
+        // 수동 입력 여부 확인
+        let isManualKw = document.getElementById('manualKwToggle').checked;
+        let kwVal = document.getElementById('editKw').value;
+
+        // 수동 입력이 체크되었을 때만 loadKw를 저장, 아니면 null
+        let loadKwValue = null;
+        if (isManualKw && kwVal !== "") {
+            loadKwValue = parseFloat(kwVal);
+        }
+
+        var data = {
+            customArea: parseFloat(document.getElementById('editAreaInput').value) || 0,
+            loadKw: loadKwValue,
+            manualKw: isManualKw && loadKwValue !== null,  // 수동 입력 여부 플래그
+            ssName: document.getElementById('editSs').value,
+            dlName: document.getElementById('editDl').value,
+            memo: document.getElementById('editMemo').value,
+            supplyRate: parseInt(document.getElementById('editRate').value),
+            status: parseInt(localStorage.getItem('temp_status')) || 99
+        };
         setSafeData(currentEditingParcel, data); 
         map.data.setStyle(map.data.getStyle()); updateDatalists(); renderUnconfirmedList();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
@@ -1279,6 +1899,148 @@
         closeModals(); 
     }
     document.addEventListener('contextmenu', event => event.preventDefault());
+
+    // 워크스페이스 탭 관리 (프로그램 시작 시 빈 배열, 도면 로드 시만 추가)
+    let workspaceTabs = [];
+
+    function addProjectTab(projectName) {
+        if (!projectName) return;
+        workspaceTabs = workspaceTabs.filter(p => p !== projectName);
+        workspaceTabs.unshift(projectName);
+        if (workspaceTabs.length > 10) workspaceTabs = workspaceTabs.slice(0, 10);
+        localStorage.setItem('workspaceTabs', JSON.stringify(workspaceTabs));
+        renderWorkspaceTabs();
+    }
+
+    function renderWorkspaceTabs() {
+        let tabsHtml = '';
+        workspaceTabs.forEach(proj => {
+            let isActive = proj === currentProject ? 'active' : '';
+            tabsHtml += `<div class="workspace-tab ${isActive}" onclick="switchProject('${proj}')">
+                ${proj} <span class="close-btn" onclick="event.stopPropagation(); removeProjectTab('${proj}')">✕</span>
+            </div>`;
+        });
+        document.getElementById('workspaceTabsContainer').innerHTML = tabsHtml;
+    }
+
+    function switchProject(projectName) {
+        if (projectName === currentProject) return;
+        if (!projectName) return;
+
+        // 1️⃣ 현재 프로젝트의 편집 필지 저장
+        if (currentEditingParcel) saveParcelData();
+        let previousProject = currentProject;
+
+        // 2️⃣ 이전 프로젝트의 상태 저장
+        if (previousProject && previousProject !== "default" && globalGeoJson) {
+            localStorage.setItem('geoJson_' + previousProject, JSON.stringify(globalGeoJson));
+        }
+
+        // 3️⃣ 이전 프로젝트의 필지 데이터 정리 (메모리 정리)
+        if (previousProject && previousProject !== "default") {
+            for (let i = localStorage.length - 1; i >= 0; i--) {
+                let key = localStorage.key(i);
+                if (key && key.startsWith(previousProject + '_parcel_')) {
+                    localStorage.removeItem(key);
+                }
+            }
+        }
+
+        // 4️⃣ 새 프로젝트로 전환
+        currentProject = projectName;
+        document.getElementById('currentProjectName').innerText = currentProject;
+        localStorage.setItem('currentProjectName', currentProject);
+
+        // 5️⃣ 기존 도면 전부 제거
+        var featuresToRemove = [];
+        if (map.data && map.data.forEach) {
+            map.data.forEach(function(feature) {
+                featuresToRemove.push(feature);
+            });
+        }
+        for (var idx = 0; idx < featuresToRemove.length; idx++) {
+            map.data.removeFeature(featuresToRemove[idx]);
+        }
+
+        // 6️⃣ 새 프로젝트의 GeoJSON 복구 및 로드
+        let storedGeoJson = localStorage.getItem('geoJson_' + currentProject);
+        if (storedGeoJson) {
+            try {
+                globalGeoJson = JSON.parse(storedGeoJson);
+                localStorage.setItem('currentGeoJson', storedGeoJson);
+                map.data.addGeoJson(globalGeoJson);
+            } catch(e) {
+                console.log('GeoJSON 복구 실패:', e);
+            }
+        }
+
+        // 7️⃣ 필지 데이터 로드
+        fetch('/api/load-data/' + currentProject)
+            .then(res => res.json())
+            .then(projectData => {
+                if (projectData && typeof projectData === 'object') {
+                    for (let parcelId in projectData) {
+                        localStorage.setItem(currentProject + '_parcel_' + parcelId, JSON.stringify(projectData[parcelId]));
+                    }
+                }
+                map.data.setStyle(map.data.getStyle());
+                updateDatalists();
+                renderUnconfirmedList();
+                if(viewMode === 'ss' || viewMode === 'dl') buildLegend(viewMode);
+            })
+            .catch(err => console.log('프로젝트 데이터 로드:', err));
+
+        renderWorkspaceTabs();
+    }
+
+    function removeProjectTab(projectName) {
+        // 1️⃣ 탭 목록에서 제거
+        workspaceTabs = workspaceTabs.filter(p => p !== projectName);
+        localStorage.setItem('workspaceTabs', JSON.stringify(workspaceTabs));
+
+        // 2️⃣ 닫힌 탭이 현재 탭이면 처리
+        if (projectName === currentProject) {
+            if (workspaceTabs.length > 0) {
+                // 다른 탭이 있으면 첫 번째 탭으로 자동 전환
+                switchProject(workspaceTabs[0]);
+            } else {
+                // 모든 탭이 닫혔으면 도면 비우기
+                clearCurrentProject();
+            }
+        }
+
+        renderWorkspaceTabs();
+    }
+
+    function clearCurrentProject() {
+        // 도면을 비우고 상태 초기화
+        currentProject = "default";
+        globalGeoJson = null;
+        document.getElementById('currentProjectName').innerText = "";
+
+        // 이전 GeoJSON 모두 제거
+        var featuresToRemove = [];
+        if (map.data && map.data.forEach) {
+            map.data.forEach(function(feature) {
+                featuresToRemove.push(feature);
+            });
+        }
+        for (var idx = 0; idx < featuresToRemove.length; idx++) {
+            map.data.removeFeature(featuresToRemove[idx]);
+        }
+
+        // 화면 갱신
+        map.data.setStyle(map.data.getStyle());
+        updateDatalists();
+        renderUnconfirmedList();
+        if (document.getElementById('dashboardOverlay').style.display === 'flex') closeDashboard();
+    }
+
+    renderWorkspaceTabs();
 </script>
+
+    <div id="workspaceBar">
+        <div id="workspaceTabsContainer"></div>
+    </div>
 </body>
 </html>

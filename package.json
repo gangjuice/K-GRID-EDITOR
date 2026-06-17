@@ -5,38 +5,44 @@
   "main": "main.js",
   "author": "heeyun",
   "license": "MIT",
-
   "scripts": {
-    "start": "electron .",
-    "build": "electron-builder --win portable"
+    "start": ".\\node_modules\\.bin\\electron .",
+    "build": ".\\node_modules\\.bin\\electron-builder --win portable",
+    "build:extranet": ".\\node_modules\\.bin\\electron-builder --win portable --config electron-builder-extranet.json",
+    "build:intranet": ".\\node_modules\\.bin\\electron-builder --win portable --config electron-builder-intranet.json"
   },
-
   "dependencies": {
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "leaflet": "^1.9.4",
+    "xlsx": "^0.18.5"
   },
-
   "devDependencies": {
-    "electron": "^37.0.0",
+    "electron": "^42.4.1",
     "electron-builder": "^26.0.12"
   },
-
   "build": {
     "appId": "com.kgrid.editor",
     "productName": "K-GRID EDITOR",
-
     "directories": {
       "output": "dist"
     },
-
     "files": [
-      "**/*"
+      "main.js",
+      "index.html",
+      "intranet.html",
+      "preload.js",
+      "public/**/*",
+      "data/**/*",
+      "node_modules/express/**/*",
+      "node_modules/xlsx/**/*",
+      "node_modules/leaflet/**/*"
     ],
-
     "win": {
       "target": "portable"
     },
     "portable": {
-      "artifactName": "K-GRID-EDITOR-${version}-portable.exe"
-    }
+      "artifactName": "K-GRID-EDITOR-v${version}.exe"
+    },
+    "asar": true
   }
 }
