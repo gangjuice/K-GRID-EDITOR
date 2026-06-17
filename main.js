@@ -83,12 +83,12 @@ function createWindow() {
         webPreferences: {
             contextIsolation: false,
             nodeIntegration: false,
-            devTools: false
+            webSecurity: false
         }
     });
 
     win.loadURL("http://localhost:8000/index.html");
-    win.webContents.openDevTools();
+    win.setMenuBarVisibility(false);
 }
 
 app.whenReady().then(() => {
