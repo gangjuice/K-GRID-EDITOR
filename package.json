@@ -1,0 +1,35 @@
+{
+  "name": "k-grid-editor",
+  "version": "1.0.0",
+  "description": "K-GRID EDITOR",
+  "main": "main.js",
+  "author": "heeyun",
+  "license": "MIT",
+
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable"
+  },
+
+  "devDependencies": {
+    "electron": "^37.0.0",
+    "electron-builder": "^26.0.12"
+  },
+
+  "build": {
+    "appId": "com.kgrid.editor",
+    "productName": "K-GRID EDITOR",
+
+    "directories": {
+      "output": "dist"
+    },
+
+    "files": [
+      "**/*"
+    ],
+
+    "win": {
+      "target": "portable"
+    }
+  }
+}
