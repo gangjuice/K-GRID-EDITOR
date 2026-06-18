@@ -95,7 +95,7 @@
         .dash-chk { width: 16px; height: 16px; accent-color: #d93025; cursor: pointer; }
         
         .badge { font-size: 11px; padding: 4px 8px; border-radius: 12px; color: #fff; font-weight: bold; white-space: nowrap; }
-        .bg-blue { background: #1a73e8; } .bg-red { background: #d93025; } .bg-gray { background: #9aa0a6; } .bg-yellow { background: #f1c40f; color: #202124; }
+        .bg-blue { background: #1a73e8; } .bg-red { background: #d93025; } .bg-gray { background: #9aa0a6; } .bg-yellow { background: #f1c40f; color: #202124; } .bg-purple { background: #7986CB; }
         .sort-icon { font-size: 11px; margin-left: 4px; color: #1a73e8; font-weight: bold; }
 
         /* 모달 팝업 레이아웃 */
@@ -317,33 +317,55 @@
 
     <!-- ★ Lot 패널 -->
     <div id="lotPanelOverlay" onclick="closeLotPanel()" style="display:none; position:fixed; inset:0; z-index:2900;"></div>
-    <div id="lotPanel" style="display:none; position:fixed; right:20px; top:80px; width:440px; max-height:calc(100vh - 100px); background:#fff; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,0.22); z-index:3000; overflow:hidden; flex-direction:column;">
-        <div style="padding:14px 18px; background:#1a73e8; color:#fff; flex-shrink:0;">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                <div>
-                    <div id="lotPanelTitle" style="font-size:15px; font-weight:bold; margin-bottom:3px;"></div>
-                    <div id="lotPanelSubtitle" style="font-size:12px; opacity:0.85;"></div>
-                </div>
-                <button onclick="closeLotPanel()" style="background:none; border:none; color:#fff; font-size:18px; cursor:pointer; padding:0; line-height:1;">✕</button>
+    <div id="lotPanel" style="display:none; position:fixed; right:20px; top:80px; width:620px; max-height:calc(100vh - 100px); background:#fff; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,0.22); z-index:3000; overflow:hidden; flex-direction:column;">
+        <div style="padding:12px 16px; background:#1a73e8; color:#fff; flex-shrink:0; display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+                <div id="lotPanelTitle" style="font-size:14px; font-weight:bold; margin-bottom:2px;"></div>
+                <div id="lotPanelSubtitle" style="font-size:11px; opacity:0.85;"></div>
+            </div>
+            <button onclick="closeLotPanel()" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer;padding:0;line-height:1;">✕</button>
+        </div>
+        <!-- 블록 일괄 편집 섹션 -->
+        <div style="padding:10px 14px; background:#e8f4fd; border-bottom:1px solid #b3d7f5; flex-shrink:0;">
+            <div style="font-size:11px; font-weight:700; color:#1a73e8; margin-bottom:6px;">▣ 블록 일괄 편집 (모든 로트에 기본값 적용)</div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <label style="font-size:11px; color:#5f6368;">송전상태
+                    <select id="lotBatchStatus" style="margin-left:4px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 4px;">
+                        <option value="99">미입력</option><option value="1">송전완료</option>
+                        <option value="2">미송전</option><option value="3">무부하</option>
+                    </select>
+                </label>
+                <label style="font-size:11px; color:#5f6368;">공급률(%)
+                    <input id="lotBatchSupplyRate" type="number" min="0" max="100" style="margin-left:4px; width:50px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
+                </label>
+                <label style="font-size:11px; color:#5f6368;">변전소
+                    <input id="lotBatchSs" type="text" list="ssList" style="margin-left:4px; width:80px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
+                </label>
+                <label style="font-size:11px; color:#5f6368;">선로
+                    <input id="lotBatchDl" type="text" list="dlList" style="margin-left:4px; width:80px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
+                </label>
+                <button onclick="applyLotBatch()" style="font-size:11px; background:#1a73e8; color:#fff; border:none; border-radius:4px; padding:4px 10px; cursor:pointer; white-space:nowrap;">▶ 일괄 적용</button>
             </div>
         </div>
+        <!-- 로트 개별 편집 테이블 -->
         <div style="overflow:auto; flex:1; min-height:0;">
-            <table style="width:100%; border-collapse:collapse; font-size:12px;">
-                <thead style="position:sticky; top:0; z-index:1;">
-                    <tr style="background:#f1f3f4; color:#5f6368;">
-                        <th style="padding:8px 10px; text-align:left; font-weight:600; white-space:nowrap;">로트명</th>
-                        <th style="padding:8px 10px; text-align:right; font-weight:600; white-space:nowrap;">면적(m²)</th>
-                        <th style="padding:8px 10px; text-align:right; font-weight:600; white-space:nowrap;">예측kW</th>
-                        <th style="padding:8px 10px; text-align:center; font-weight:600; white-space:nowrap;">상태</th>
+            <table style="width:100%; border-collapse:collapse; font-size:11px;">
+                <thead style="position:sticky; top:0; z-index:1; background:#f1f3f4; color:#5f6368;">
+                    <tr>
+                        <th style="padding:6px 8px; text-align:left; font-weight:600; white-space:nowrap;">로트명</th>
+                        <th style="padding:6px 8px; text-align:right; font-weight:600; white-space:nowrap;">면적m²</th>
+                        <th style="padding:6px 8px; text-align:right; font-weight:600; white-space:nowrap;">kW</th>
+                        <th style="padding:6px 8px; text-align:center; font-weight:600; white-space:nowrap;">상태</th>
+                        <th style="padding:6px 8px; text-align:center; font-weight:600; white-space:nowrap;">변전소</th>
+                        <th style="padding:6px 8px; text-align:center; font-weight:600; white-space:nowrap;">선로</th>
                     </tr>
                 </thead>
                 <tbody id="lotPanelBody"></tbody>
             </table>
         </div>
-        <div id="lotPanelTotalRow" style="padding:8px 12px; background:#e8f0fe; border-top:2px solid #1a73e8; font-size:13px; font-weight:bold; color:#1a73e8; flex-shrink:0;"></div>
-        <div style="padding:10px 14px; border-top:1px solid #ebebeb; display:flex; gap:8px; justify-content:flex-end; flex-shrink:0; background:#fafafa;">
-            <button onclick="openEditModalFromLotPanel()" class="btn btn-save" style="font-size:12px; padding:6px 12px;">⚙️ 블록 기본값</button>
-            <button onclick="saveLotPanelData()" class="btn btn-save" style="font-size:12px; padding:6px 12px; background:#34a853;">💾 저장</button>
+        <div id="lotPanelTotalRow" style="padding:7px 12px; background:#e8f0fe; border-top:2px solid #1a73e8; font-size:12px; font-weight:bold; color:#1a73e8; flex-shrink:0;"></div>
+        <div style="padding:8px 12px; border-top:1px solid #ebebeb; display:flex; gap:8px; justify-content:flex-end; flex-shrink:0; background:#fafafa;">
+            <button onclick="saveLotPanelData()" class="btn btn-save" style="font-size:12px; padding:6px 14px; background:#34a853;">💾 로트 저장</button>
             <button onclick="closeLotPanel()" class="btn btn-cancel" style="font-size:12px; padding:6px 12px;">✖ 닫기</button>
         </div>
     </div>
@@ -567,6 +589,7 @@
     var currentEditingParcel = null;
     var currentParcelType = "미상";
     var contextMenuParcelId = null;
+    var contextMenuLotName = "";
     var contextMenuParcelType = null;
     var contextMenuFeature = null;
     
@@ -796,10 +819,13 @@
         if (!isPolygonVisible) return { color: '#000', weight: 0, fillOpacity: 0, opacity: 0 };
         var parcelId = feature.properties.blockName || feature.properties.zoneName || "알수없음";
         var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
-        var data = getSafeData(parcelId);
+        var lotName = feature.properties.lotName || "";
+        var lotKey = getLotKey(parcelId, lotName);
+        var data = getLotData(parcelId, lotName); // 로트 오버라이드 → 블록 기본값
+        var blockData = getSafeData(parcelId) || {};
         var isNoLoad = isAutoNoLoad(blockType);
         var status = (data && data.status !== undefined) ? parseInt(data.status) : (isNoLoad ? 3 : 99);
-        let isSelected = selectedParcels.has(parcelId);
+        let isSelected = selectedParcels.has(lotKey);
         let baseOp = Math.max(0, 1.0 - (globalOpacity / 100));
         let strokeC = isSelected ? '#d93025' : '#333';
         let strokeW = isSelected ? 4 : 1.5;
@@ -807,7 +833,7 @@
         if (viewMode === 'gradient') {
             if (isNoLoad || status === 3) { fillColor = '#ffffff'; fillOp = 0.05; }
             else {
-                var rate = (data && data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((status === 1) ? 100 : 0);
+                var rate = getBlockSupplyRate(parcelId); // 공급률은 블록 레벨
                 fillColor = getGradientColor(rate);
                 fillOp = Math.min(baseOp + 0.2, 1.0);
                 if (highlightedLegend !== null) {
@@ -818,7 +844,7 @@
                 }
             }
         } else if (viewMode === 'ss' || viewMode === 'dl') {
-            let targetName = viewMode === 'ss' ? (data ? (data.ssName || "") : "") : (data ? (data.dlName || "") : "");
+            let targetName = viewMode === 'ss' ? (data.ssName || "") : (data.dlName || "");
             let color = getRandomColorFor(targetName);
             fillColor = color;
             fillOp = (color === "#e0e0e0") ? Math.max(baseOp - 0.2, 0.1) : baseOp;
@@ -829,6 +855,7 @@
         } else {
             if (status === 1) { fillColor = 'royalblue'; }
             else if (status === 2 || status === 0) { fillColor = 'tomato'; }
+            else if (status === -2) { fillColor = '#7986CB'; } // 일부송전: 연보라
             else if (status === 3 || status === -1) { fillColor = '#ffffff'; fillOp = Math.max(baseOp - 0.2, 0.05); strokeC = isSelected ? '#d93025' : '#999'; }
         }
         return { color: strokeC, weight: strokeW, fillColor: fillColor, fillOpacity: fillOp };
@@ -863,8 +890,10 @@
                     var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
                     if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
                     if (isMultiSelectMode) {
-                        if (selectedParcels.has(parcelId)) selectedParcels.delete(parcelId);
-                        else selectedParcels.add(parcelId);
+                        var lName = feature.properties.lotName || "";
+                        var lKey = getLotKey(parcelId, lName);
+                        if (selectedParcels.has(lKey)) selectedParcels.delete(lKey);
+                        else selectedParcels.add(lKey);
                         mapRefreshStyles();
                         if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
                         return;
@@ -877,6 +906,7 @@
                     var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
                     if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
                     contextMenuParcelId = parcelId;
+                    contextMenuLotName = feature.properties.lotName || "";
                     contextMenuParcelType = blockType;
                     contextMenuFeature = feature;
                     var menu = document.getElementById('statusContextMenu');
@@ -903,12 +933,15 @@
                         // ② 블록 하이라이트: 외곽 경계선
                         showBlockOutline(parcelId);
                     }
-                    // ① 로트 하이라이트: 호버된 lot만 주황, 나머지는 기본 스타일
+                    // ① 로트 fill 하이라이트: 기본 fillColor를 밝게 (흰색 방향 50% 블렌드)
                     (leafletBlockLayers[parcelId] || []).forEach(function(item) {
                         var iLot = item.feature.properties.lotName || "";
-                        item.layer.setStyle(iLot === lotName
-                            ? { weight: 3, color: '#ff6d00', fillOpacity: Math.min((1 - globalOpacity / 100) + 0.35, 0.95) }
-                            : getParcelStyle(item.feature));
+                        if (iLot === lotName) {
+                            var base = getParcelStyle(item.feature);
+                            item.layer.setStyle({ weight: 2, color: base.color, fillColor: lightenColor(base.fillColor || '#cccccc', 0.5), fillOpacity: Math.max(base.fillOpacity || 0.5, 0.8) });
+                        } else {
+                            item.layer.setStyle(getParcelStyle(item.feature));
+                        }
                     });
 
                     // lot 단위 브리핑
@@ -999,6 +1032,19 @@
         if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveAllData(); }
     });
 
+    function lightenColor(hex, amount) {
+        // amount 0~1: 0=원색, 1=흰색. named color 대응
+        var map = { royalblue:'#4169e1', tomato:'#ff6347', white:'#ffffff', '#ffffff':'#ffffff' };
+        hex = (map[hex] || hex).replace('#', '');
+        if (hex.length === 3) hex = hex.split('').map(function(c){return c+c;}).join('');
+        if (hex.length !== 6) return '#ffffff';
+        var r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+        r = Math.round(r + (255-r)*amount);
+        g = Math.round(g + (255-g)*amount);
+        b = Math.round(b + (255-b)*amount);
+        return '#'+[r,g,b].map(function(v){return ('0'+v.toString(16)).slice(-2);}).join('');
+    }
+
     function getLotKey(blockName, lotName) {
         return lotName ? blockName + '___' + lotName : blockName;
     }
@@ -1032,6 +1078,39 @@
                 : calcAutoKw(blockType, area).kw;
         });
         return total;
+    }
+
+    // 블록 집계 상태: 미송전(2) > 미입력(99) > 일부송전(-2) > 무부하(3) > 송전완료(1)
+    function getBlockStatus(blockName) {
+        var lots = blockLotsIndex.get(blockName) || [];
+        if (lots.length === 0) {
+            var d = getSafeData(blockName) || {};
+            return d.status !== undefined ? parseInt(d.status) : 99;
+        }
+        var statuses = lots.map(function(lot) {
+            var d = getLotData(blockName, lot.lotName);
+            return d.status !== undefined ? parseInt(d.status) : 99;
+        });
+        if (statuses.some(function(s){return s===2;})) {
+            return statuses.every(function(s){return s===2;}) ? 2 : -2; // -2=일부송전
+        }
+        if (statuses.some(function(s){return s===99;})) return 99;
+        if (statuses.some(function(s){return s===3;})) return 3;
+        return 1;
+    }
+
+    // 블록 공급률은 블록 키에만 존재 (로트에는 없음)
+    function getBlockSupplyRate(blockName) {
+        var d = getSafeData(blockName);
+        return (d && d.supplyRate !== undefined) ? parseInt(d.supplyRate) : 0;
+    }
+
+    function getStatusText(st) {
+        if (st === 1) return '송전완료';
+        if (st === 2 || st === 0) return '미송전';
+        if (st === -2) return '일부송전';
+        if (st === 3 || st === -1) return '무부하';
+        return '미입력';
     }
 
     function setSafeData(parcelId, dataObj) {
@@ -1135,13 +1214,6 @@
     }
 
     // status 코드 → 텍스트 (단일화)
-    function getStatusText(status) {
-        if (status === 1) return "송전완료";
-        if (status === 2 || status === 0) return "미송전";
-        if (status === 3) return "무부하";
-        return "미입력";
-    }
-
     // 레이블 마커 전체 제거
     function clearAllMarkers() {
         if (!useLeaflet) for (let i = 0; i < labelMarkers.length; i++) labelMarkers[i].setMap(null);
@@ -1206,7 +1278,7 @@
                 blockOutlineGroup = L.geoJSON(
                     { type: 'FeatureCollection', features: lots.map(function(l) { return l.feature; }) },
                     {
-                        style: function() { return { weight: 10, color: '#e53935', opacity: 0.9, fill: false, interactive: false }; },
+                        style: function() { return { weight: 10, color: '#1a237e', opacity: 0.85, fill: false, interactive: false }; },
                         pane: 'blockHighlight'
                     }
                 ).addTo(map);
@@ -1265,29 +1337,53 @@
         document.getElementById('lotPanelTitle').innerText = blockName + '  (' + lotPanelBlockType + ')';
         document.getElementById('lotPanelSubtitle').innerText = lots.length + '개 로트 · 블록 총 예측 ' + totalKw.toLocaleString() + ' kW';
 
+        // 블록 일괄 편집 섹션 렌더
+        var blockData = getSafeData(blockName) || {};
+        var bSt = blockData.status !== undefined ? parseInt(blockData.status) : 99;
+        var bSupplyRate = blockData.supplyRate !== undefined ? parseInt(blockData.supplyRate) : 0;
+        document.getElementById('lotBatchStatus').value = bSt;
+        document.getElementById('lotBatchSupplyRate').value = bSupplyRate;
+        document.getElementById('lotBatchSs').value = blockData.ssName || '';
+        document.getElementById('lotBatchDl').value = blockData.dlName || '';
+
         var tbody = document.getElementById('lotPanelBody');
         if (lots.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="padding:20px; text-align:center; color:#888;">lotName 정보 없음</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="padding:20px; text-align:center; color:#888;">lotName 정보 없음</td></tr>';
         } else {
             tbody.innerHTML = lots.map(function(lot, idx) {
                 var merged = getLotData(blockName, lot.lotName);
                 var hasOverride = !!getSafeData(getLotKey(blockName, lot.lotName));
+                var area = (merged.customArea > 0) ? merged.customArea : lot.area;
                 var kw = (merged.loadKw !== null && merged.loadKw !== undefined)
                     ? (parseFloat(merged.loadKw) || 0)
-                    : calcAutoKw(lotPanelBlockType, lot.area).kw;
+                    : calcAutoKw(lotPanelBlockType, area).kw;
+                var lotSt = (merged.status !== undefined) ? parseInt(merged.status) : 99;
                 var badge = hasOverride
-                    ? '<span style="font-size:10px; background:#ff6d00; color:#fff; border-radius:4px; padding:1px 5px; margin-left:4px;">개별</span>'
-                    : '<span style="font-size:10px; background:#9aa0a6; color:#fff; border-radius:4px; padding:1px 5px; margin-left:4px;">기본</span>';
-                var stText = getStatusText(merged.status !== undefined ? merged.status : 99);
-                var stColor = stText === '송전완료' ? '#1a73e8' : stText === '미송전' ? '#d93025' : stText === '무부하' ? '#9aa0a6' : '#f9ab00';
-                return '<tr style="border-bottom:1px solid #f1f3f4;">'
-                    + '<td style="padding:8px 10px; font-weight:600;">' + (lot.lotName || '-') + badge + '</td>'
-                    + '<td style="padding:8px 10px; text-align:right; color:#5f6368;">' + lot.area.toLocaleString() + '</td>'
-                    + '<td style="padding:8px 10px; text-align:right;">'
-                    +   '<input type="number" data-lot-idx="' + idx + '" data-lot-name="' + (lot.lotName||'') + '" value="' + kw + '" '
-                    +   'style="width:75px; text-align:right; border:1px solid ' + (hasOverride ? '#ff6d00' : '#dadce0') + '; border-radius:4px; padding:3px 6px; font-size:12px; background:' + (hasOverride ? '#fff8f3' : '#f8f9fa') + ';">'
+                    ? '<span style="font-size:9px;background:#ff6d00;color:#fff;border-radius:3px;padding:1px 4px;margin-left:3px;">개별</span>'
+                    : '';
+                var selOpts = [[99,'미입력'],[1,'송전완료'],[2,'미송전'],[3,'무부하']].map(function(o){
+                    return '<option value="'+o[0]+'"'+(lotSt===o[0]?' selected':'')+'>'+o[1]+'</option>';
+                }).join('');
+                var safeLot = (lot.lotName||'').replace(/"/g,'&quot;');
+                return '<tr style="border-bottom:1px solid #f1f3f4;" data-lot-row="'+safeLot+'">'
+                    + '<td style="padding:6px 8px;font-weight:600;white-space:nowrap;">' + (lot.lotName||'-') + badge + '</td>'
+                    + '<td style="padding:6px 8px;text-align:right;color:#5f6368;font-size:11px;">' + Math.round(area).toLocaleString() + '</td>'
+                    + '<td style="padding:6px 8px;text-align:right;">'
+                    +   '<input type="number" data-lot-idx="'+idx+'" data-lot-name="'+safeLot+'" value="'+kw+'" '
+                    +   'style="width:68px;text-align:right;border:1px solid '+(hasOverride?'#ff6d00':'#dadce0')+';border-radius:4px;padding:2px 5px;font-size:12px;">'
                     + '</td>'
-                    + '<td style="padding:8px 10px; text-align:center; font-size:11px; color:' + stColor + '; font-weight:bold;">' + stText + '</td>'
+                    + '<td style="padding:6px 8px;">'
+                    +   '<select data-lot-status data-lot-name="'+safeLot+'" style="width:80px;font-size:11px;border:1px solid #dadce0;border-radius:4px;padding:2px 4px;">'
+                    +   selOpts + '</select>'
+                    + '</td>'
+                    + '<td style="padding:6px 8px;">'
+                    +   '<input type="text" data-lot-ss data-lot-name="'+safeLot+'" value="'+(merged.ssName||'')+'" placeholder="변전소" '
+                    +   'style="width:70px;font-size:11px;border:1px solid #dadce0;border-radius:4px;padding:2px 5px;" list="ssList">'
+                    + '</td>'
+                    + '<td style="padding:6px 8px;">'
+                    +   '<input type="text" data-lot-dl data-lot-name="'+safeLot+'" value="'+(merged.dlName||'')+'" placeholder="선로" '
+                    +   'style="width:70px;font-size:11px;border:1px solid #dadce0;border-radius:4px;padding:2px 5px;" list="dlList">'
+                    + '</td>'
                     + '</tr>';
             }).join('');
         }
@@ -1305,40 +1401,55 @@
         lotPanelBlockName = null;
     }
 
+    function applyLotBatch() {
+        if (!lotPanelBlockName) return;
+        var lots = blockLotsIndex.get(lotPanelBlockName) || [];
+        var bSt = parseInt(document.getElementById('lotBatchStatus').value);
+        var bRate = parseInt(document.getElementById('lotBatchSupplyRate').value) || 0;
+        var bSs = document.getElementById('lotBatchSs').value.trim();
+        var bDl = document.getElementById('lotBatchDl').value.trim();
+        // 블록 키에 기본값 저장 (공급률 포함)
+        var blockData = getSafeData(lotPanelBlockName) || {};
+        blockData.status = bSt; blockData.supplyRate = bRate;
+        if (bSs !== '') blockData.ssName = bSs;
+        if (bDl !== '') blockData.dlName = bDl;
+        setSafeData(lotPanelBlockName, blockData);
+        // 로트별 개별 오버라이드 중 status/ss/dl 초기화 (블록 기본값으로 통일)
+        lots.forEach(function(lot) {
+            var key = getLotKey(lotPanelBlockName, lot.lotName);
+            var ex = getSafeData(key);
+            if (ex) { delete ex.status; delete ex.ssName; delete ex.dlName; setSafeData(key, ex); }
+        });
+        mapRefreshStyles(); renderUnconfirmedList();
+        if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
+        openLotPanel(lotPanelBlockName, lotPanelBlockType);
+    }
+
     function saveLotPanelData() {
         if (!lotPanelBlockName) return;
         var lots = blockLotsIndex.get(lotPanelBlockName) || [];
-        var blockDefault = getSafeData(lotPanelBlockName) || {};
-        var inputs = document.querySelectorAll('#lotPanelBody input[data-lot-idx]');
-        inputs.forEach(function(input) {
-            var lotName = input.getAttribute('data-lot-name');
-            var kwVal = parseFloat(input.value);
-            if (isNaN(kwVal)) return;
-            var defaultKw = (blockDefault.loadKw !== null && blockDefault.loadKw !== undefined)
-                ? parseFloat(blockDefault.loadKw)
-                : calcAutoKw(lotPanelBlockType, lots[parseInt(input.getAttribute('data-lot-idx'))].area).kw;
-            var key = getLotKey(lotPanelBlockName, lotName);
-            if (Math.abs(kwVal - defaultKw) < 0.01) {
-                // 기본값과 같으면 오버라이드 삭제
-                var existing = getSafeData(key);
-                if (existing) {
-                    delete existing.loadKw;
-                    if (Object.keys(existing).length === 0) {
-                        localStorage.removeItem(currentProject + '_parcel_' + key);
-                    } else {
-                        setSafeData(key, existing);
-                    }
-                }
-            } else {
-                var existing = getSafeData(key) || {};
-                existing.loadKw = kwVal;
-                existing.manualKw = true;
-                setSafeData(key, existing);
-            }
+        // 각 로트 row 처리
+        lots.forEach(function(lot, idx) {
+            var safeLot = (lot.lotName||'').replace(/"/g,'&quot;');
+            var kwInput = document.querySelector('#lotPanelBody input[data-lot-idx="'+idx+'"]');
+            var stSelect = document.querySelector('#lotPanelBody select[data-lot-name="'+safeLot+'"][data-lot-status]');
+            var ssInput = document.querySelector('#lotPanelBody input[data-lot-name="'+safeLot+'"][data-lot-ss]');
+            var dlInput = document.querySelector('#lotPanelBody input[data-lot-name="'+safeLot+'"][data-lot-dl]');
+            if (!kwInput) return;
+            var key = getLotKey(lotPanelBlockName, lot.lotName);
+            var existing = getSafeData(key) || {};
+            var kwVal = parseFloat(kwInput.value);
+            if (!isNaN(kwVal)) { existing.loadKw = kwVal; existing.manualKw = true; }
+            if (stSelect) existing.status = parseInt(stSelect.value);
+            if (ssInput) existing.ssName = ssInput.value.trim();
+            if (dlInput) existing.dlName = dlInput.value.trim();
+            setSafeData(key, existing);
         });
+        mapRefreshStyles(); renderUnconfirmedList();
+        if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
         var toast = document.getElementById('saveToast');
         if (toast) { toast.style.opacity = '1'; setTimeout(() => { toast.style.opacity = '0'; }, 1500); }
-        openLotPanel(lotPanelBlockName, lotPanelBlockType); // 패널 새로고침
+        openLotPanel(lotPanelBlockName, lotPanelBlockType);
     }
 
     function openEditModalFromLotPanel() {
@@ -1388,59 +1499,42 @@
 
         var parcelId = feature.getProperty('blockName') || feature.getProperty('zoneName') || "알수없음";
         var blockType = feature.getProperty('blockType') || feature.getProperty('용도') || feature.getProperty('ZONE_NM') || "미상";
-        var data = getSafeData(parcelId);
+        var lotName = feature.getProperty('lotName') || "";
+        var lotKey = getLotKey(parcelId, lotName);
+        var data = getLotData(parcelId, lotName);
         var isNoLoad = isAutoNoLoad(blockType);
         var status = (data && data.status !== undefined) ? parseInt(data.status) : (isNoLoad ? 3 : 99);
-        
-        let isSelected = selectedParcels.has(parcelId);
-        let baseOp = Math.max(0, 1.0 - (globalOpacity / 100)); 
-        
+
+        let isSelected = selectedParcels.has(lotKey);
+        let baseOp = Math.max(0, 1.0 - (globalOpacity / 100));
         let strokeC = isSelected ? '#d93025' : '#333';
         let strokeW = isSelected ? 4 : 1.5;
 
         if (viewMode === 'gradient') {
             if (isNoLoad || status === 3) return { fillColor: '#ffffff', fillOpacity: 0.05, strokeColor: strokeC, strokeWeight: strokeW };
-            var rate = (data && data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((status === 1) ? 100 : 0);
-
+            var rate = getBlockSupplyRate(parcelId);
             let targetOp = Math.min(baseOp + 0.2, 1.0);
-
-            // highlightedLegend가 있으면 범위 체크 (예: "0-10%", "10-20%" 등)
             if (highlightedLegend !== null) {
                 let parts = highlightedLegend.replace('%', '').split('-');
-                let min = parseInt(parts[0]);
-                let max = parseInt(parts[1]);
-                if (rate < min || rate >= max) {
-                    targetOp = 0.05;
-                    if(!isSelected) strokeC = 'rgba(0,0,0,0.1)';
-                } else {
-                    targetOp = Math.min(baseOp + 0.4, 1.0);
-                }
+                let min = parseInt(parts[0]), max = parseInt(parts[1]);
+                if (rate < min || rate >= max) { targetOp = 0.05; if(!isSelected) strokeC = 'rgba(0,0,0,0.1)'; }
+                else { targetOp = Math.min(baseOp + 0.4, 1.0); }
             }
-
             return { fillColor: getGradientColor(rate), fillOpacity: targetOp, strokeColor: strokeC, strokeWeight: strokeW };
-        }
-        else if (viewMode === 'ss' || viewMode === 'dl') {
-            let targetName = "";
-            if (viewMode === 'ss') targetName = data ? (data.ssName||"") : "";
-            if (viewMode === 'dl') targetName = data ? (data.dlName||"") : "";
-            
+        } else if (viewMode === 'ss' || viewMode === 'dl') {
+            let targetName = viewMode === 'ss' ? (data.ssName||"") : (data.dlName||"");
             let color = getRandomColorFor(targetName);
             let targetOp = (color === "#e0e0e0") ? Math.max(baseOp - 0.2, 0.1) : baseOp;
-
             if (highlightedLegend !== null) {
-                if (targetName !== highlightedLegend) {
-                    targetOp = 0.05; 
-                    if(!isSelected) strokeC = 'rgba(0,0,0,0.1)';
-                } else {
-                    targetOp = Math.min(baseOp + 0.4, 1.0); 
-                }
+                if (targetName !== highlightedLegend) { targetOp = 0.05; if(!isSelected) strokeC = 'rgba(0,0,0,0.1)'; }
+                else { targetOp = Math.min(baseOp + 0.4, 1.0); }
             }
             return { fillColor: color, fillOpacity: targetOp, strokeColor: strokeC, strokeWeight: strokeW };
-        }
-        else { 
+        } else {
             let fColor = '#f1c40f'; let targetOp = baseOp;
             if (status === 1) { fColor = 'royalblue'; }
             else if (status === 2 || status === 0) { fColor = 'tomato'; }
+            else if (status === -2) { fColor = '#7986CB'; } // 일부송전
             else if (status === 3 || status === -1) { fColor = '#ffffff'; targetOp = Math.max(baseOp - 0.2, 0.05); strokeC = isSelected ? '#d93025' : '#999'; }
             return { fillColor: fColor, fillOpacity: targetOp, strokeColor: strokeC, strokeWeight: strokeW };
         }
@@ -1512,18 +1606,20 @@
         `;
         document.getElementById('briefingOverlay').style.display = 'block';
 
-        // ① 로트 하이라이트 + ② 블록 외곽선을 한 번에 처리 (Naver는 overrideStyle로 통합)
+        // ① 로트 fill 밝기 하이라이트 + ② 블록 테두리 (Naver overrideStyle 통합)
         map.data.getAllFeature().forEach(function(f) {
             var fBlock = f.getProperty('blockName') || f.getProperty('zoneName');
             if (fBlock !== blockName) return;
             var fLot = f.getProperty('lotName') || "";
+            var ns = naverMapStyleFn(f);
             if (fLot === lotName) {
                 map.data.overrideStyle(f, {
-                    strokeWeight: 4, strokeColor: '#ff6d00',
-                    fillOpacity: Math.min((1 - globalOpacity / 100) + 0.35, 0.95)
+                    fillColor: lightenColor(ns.fillColor || '#cccccc', 0.5),
+                    fillOpacity: Math.max(ns.fillOpacity || 0.5, 0.85),
+                    strokeWeight: 3, strokeColor: ns.strokeColor
                 });
             } else {
-                map.data.overrideStyle(f, { strokeWeight: 3, strokeColor: '#e53935', strokeOpacity: 0.9 });
+                map.data.overrideStyle(f, { strokeWeight: 3, strokeColor: '#1a237e', strokeOpacity: 0.85 });
             }
         });
         // Leaflet은 pane 레이어로 블록 외곽선 별도 처리
@@ -1549,8 +1645,10 @@
         if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
 
         if (isMultiSelectMode) {
-            if (selectedParcels.has(parcelId)) selectedParcels.delete(parcelId);
-            else selectedParcels.add(parcelId);
+            var lName = e.feature.getProperty('lotName') || "";
+            var lKey = getLotKey(parcelId, lName);
+            if (selectedParcels.has(lKey)) selectedParcels.delete(lKey);
+            else selectedParcels.add(lKey);
             mapRefreshStyles();
             if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
             return;
@@ -1577,6 +1675,7 @@
         var blockType = e.feature.getProperty('blockType') || e.feature.getProperty('용도') || e.feature.getProperty('ZONE_NM') || "미상";
         if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
         contextMenuParcelId = parcelId;
+        contextMenuLotName = e.feature.getProperty('lotName') || "";
         contextMenuParcelType = blockType;
         contextMenuFeature = e.feature;
         var menu = document.getElementById('statusContextMenu');
@@ -1592,24 +1691,21 @@
     function setParcelStatus(newStatus) {
         document.getElementById('statusContextMenu').style.display = 'none';
         if (!contextMenuParcelId) return;
-        var data = getSafeData(contextMenuParcelId) || { customArea: null, loadKw: null, manualKw: false, ssName: "", dlName: "", supplyRate: 0, status: 99, memo: "" };
+        var lotKey = getLotKey(contextMenuParcelId, contextMenuLotName);
+        var data = getSafeData(lotKey) || {};
         data.status = newStatus;
         if (newStatus === 1) {
-            data.supplyRate = 100;
             if (!data.manualKw) {
+                // 로트 면적 계산 (해당 피처의 면적)
                 var area = data.customArea || 0;
                 if (!area && contextMenuFeature) {
-                    // Naver: feature.getProperty(), Leaflet: feature.properties
                     area = (typeof contextMenuFeature.getProperty === 'function')
                         ? (contextMenuFeature.getProperty('area') || contextMenuFeature.getProperty('면적') || 0)
                         : ((contextMenuFeature.properties && (contextMenuFeature.properties.area || contextMenuFeature.properties.면적)) || 0);
                 }
-                if (!area && globalGeoJson && globalGeoJson.features) {
-                    for (var f of globalGeoJson.features) {
-                        if ((f.properties.blockName || f.properties.zoneName) === contextMenuParcelId && f.geometry) {
-                            area += calculateAreaM2(f.geometry.coordinates);
-                        }
-                    }
+                if (!area && contextMenuFeature) {
+                    var geom = (typeof contextMenuFeature.getGeometry === 'function') ? null : contextMenuFeature.geometry;
+                    if (geom && geom.coordinates) area = calculateAreaM2(geom.coordinates);
                 }
                 var cv = 0;
                 for (var key in loadRateDict) {
@@ -1619,13 +1715,11 @@
                 if (cv > 0) { data.loadKw = cv; data.manualKw = false; }
             }
         } else if (newStatus === 2) {
-            data.supplyRate = 0;
             if (!data.manualKw) { data.loadKw = null; }
         } else if (newStatus === 3 || newStatus === 99) {
-            data.supplyRate = 0;
             if (!data.manualKw) { data.loadKw = 0; }
         }
-        setSafeData(contextMenuParcelId, data);
+        setSafeData(lotKey, data);
         mapRefreshStyles();
         renderUnconfirmedList();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
@@ -1890,7 +1984,15 @@
     }
 
     function toggleParcelSel(bName, isChecked) {
-        if(isChecked) selectedParcels.add(bName); else selectedParcels.delete(bName);
+        var lots = blockLotsIndex.get(bName) || [];
+        if (lots.length > 0) {
+            lots.forEach(function(lot) {
+                var lKey = getLotKey(bName, lot.lotName);
+                if (isChecked) selectedParcels.add(lKey); else selectedParcels.delete(lKey);
+            });
+        } else {
+            if (isChecked) selectedParcels.add(bName); else selectedParcels.delete(bName);
+        }
         mapRefreshStyles(); renderDashboard();
     }
 
@@ -1902,44 +2004,69 @@
             if(!feature.properties) return;
             var blockName = feature.properties.blockName || feature.properties.zoneName || "알수없음";
             if(exportedBlocks.has(blockName)) return;
-            
+
             var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
-            var data = getSafeData(blockName);
-            var st = undefined, supplyRate = 0, loadKw = null, customArea = null;
+            var lots = blockLotsIndex.get(blockName) || [];
+            var supplyRate = getBlockSupplyRate(blockName);
+            var finalKw = getBlockTotalKw(blockName);
+            var st = getBlockStatus(blockName);
+            var stText = getStatusText(st);
 
-            let calcArea = feature.properties.area || feature.properties.면적 || feature.properties.SHAPE_Area;
-            if (!calcArea && feature.geometry && feature.geometry.coordinates) calcArea = calculateAreaM2(feature.geometry.coordinates);
-            calcArea = Math.round(calcArea || 0);
-
-            if (data) {
-                st = parseInt(data.status); loadKw = data.loadKw !== null ? parseFloat(data.loadKw) : null;
-                customArea = data.customArea ? Math.round(data.customArea) : null;
+            // 블록 전체 면적: lot 면적 합산
+            var finalArea = 0;
+            if (lots.length > 0) {
+                lots.forEach(function(lot) {
+                    var d = getLotData(blockName, lot.lotName);
+                    finalArea += (d.customArea > 0) ? d.customArea : lot.area;
+                });
+                finalArea = Math.round(finalArea);
+            } else {
+                var calcArea = feature.properties.area || feature.properties.면적 || feature.properties.SHAPE_Area;
+                if (!calcArea && feature.geometry && feature.geometry.coordinates) calcArea = calculateAreaM2(feature.geometry.coordinates);
+                var blockData = getSafeData(blockName) || {};
+                finalArea = blockData.customArea ? Math.round(blockData.customArea) : Math.round(calcArea || 0);
             }
-            let finalArea = customArea || calcArea;
-            let finalKw = getBlockTotalKw(blockName);
 
-            if (st === undefined || isNaN(st)) st = isAutoNoLoad(blockType) ? 3 : 99;
-            supplyRate = (data && data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((st === 1) ? 100 : 0);
-            
-            let stText = "미입력";
-            if (st === 1) stText = "송전완료";
-            else if (st === 2 || st === 0) stText = "미송전";
-            else if (st === 3 || st === -1) stText = "무부하";
+            var supplied = finalKw * (supplyRate / 100);
+            var remain = finalKw - supplied;
 
-            let supplied = finalKw * (supplyRate / 100);
-            let remain = finalKw - supplied;
-            
-            let ssVal = data && data.ssName ? data.ssName : "";
-            let dlVal = data && data.dlName ? data.dlName : "";
-            
+            // ss/dl: 로트별 집계에서 가장 많이 쓰인 값 (또는 블록 기본값)
+            var blockData = getSafeData(blockName) || {};
+            var ssVal = blockData.ssName || "";
+            var dlVal = blockData.dlName || "";
+
             if(blockType) typeSet.add(blockType);
             if(ssVal) ssSet.add(ssVal);
             if(dlVal) dlSet.add(dlVal);
 
+            // 로트 rows 구성 (대시보드 드롭다운용)
+            var lotRows = lots.map(function(lot) {
+                var d = getLotData(blockName, lot.lotName);
+                var lotSt = (d.status !== undefined) ? parseInt(d.status) : (isAutoNoLoad(blockType) ? 3 : 99);
+                var lotArea = (d.customArea > 0) ? d.customArea : lot.area;
+                var lotKw = (d.loadKw !== null && d.loadKw !== undefined)
+                    ? (parseFloat(d.loadKw) || 0) : calcAutoKw(blockType, lotArea).kw;
+                var lotSupplied = lotKw * (supplyRate / 100);
+                return {
+                    lotName: lot.lotName || blockName,
+                    type: blockType,
+                    area: Math.round(lotArea),
+                    kw: lotKw,
+                    rate: supplyRate,
+                    supplied: lotSupplied,
+                    remain: lotKw - lotSupplied,
+                    status: getStatusText(lotSt),
+                    ss: d.ssName || ssVal,
+                    dl: d.dlName || dlVal,
+                    memo: d.memo || blockData.memo || ""
+                };
+            });
+
             dashData.push({
                 id: index, name: blockName, type: blockType, area: finalArea,
                 kw: finalKw, rate: supplyRate, supplied: supplied, remain: remain,
-                status: stText, ss: ssVal, dl: dlVal, memo: data && data.memo ? data.memo : ""
+                status: stText, ss: ssVal, dl: dlVal, memo: blockData.memo || "",
+                lotRows: lotRows
             });
             exportedBlocks.add(blockName);
         });
@@ -1959,7 +2086,7 @@
 
     function getBadgeClass(stText) {
         if(stText === "송전완료") return "bg-blue"; if(stText === "미송전") return "bg-red";
-        if(stText === "무부하") return "bg-gray"; return "bg-yellow";
+        if(stText === "일부송전") return "bg-purple"; if(stText === "무부하") return "bg-gray"; return "bg-yellow";
     }
 
     function setSort(col) {
@@ -2008,9 +2135,12 @@
         let html = '';
         filtered.forEach(d => {
             sumArea += d.area; sumKw += d.kw; sumSupplied += d.supplied; sumRemain += d.remain;
-            let isSel = selectedParcels.has(d.name);
             let lots = blockLotsIndex.get(d.name) || [];
-            let lotBtn = lots.length > 0 ? `<button onclick="event.stopPropagation(); toggleLotDrilldown('${d.name}')" style="margin-left:6px; font-size:10px; background:#e8f0fe; border:none; border-radius:3px; padding:1px 5px; color:#1a73e8; cursor:pointer;">▶ ${lots.length}로트</button>` : '';
+            let isSel = lots.length > 0
+                ? lots.some(function(lot){ return selectedParcels.has(getLotKey(d.name, lot.lotName)); })
+                : selectedParcels.has(d.name);
+            let lotCount = lots.length;
+            let lotBtn = lotCount > 0 ? `<button onclick="event.stopPropagation(); toggleLotDrilldown('${d.name}')" style="margin-left:6px; font-size:10px; background:#e8f0fe; border:none; border-radius:3px; padding:1px 5px; color:#1a73e8; cursor:pointer;">▶ ${lotCount}로트</button>` : '';
             let safeN = d.name.replace(/'/g, "\\'");
             html += `<tr class="${isSel?'selected':''}" data-block-row="${d.name}" ondblclick="jumpFromDash('${safeN}')">
                 <td style="text-align:center;"><input type="checkbox" class="dash-chk row-chk" value="${d.name}" ${isSel?'checked':''} onclick="event.stopPropagation();" onchange="toggleParcelSel('${d.name}', this.checked)"></td>
@@ -2043,26 +2173,46 @@
         if (existing.length > 0) { existing.forEach(r => r.remove()); return; }
         var parentRow = document.querySelector('[data-block-row="' + blockName + '"]');
         if (!parentRow) return;
-        var lots = blockLotsIndex.get(blockName) || [];
+        var lots = (blockLotsIndex.get(blockName) || []).slice().sort(function(a,b){
+            return (a.lotName||'').localeCompare(b.lotName||'', undefined, {numeric:true,sensitivity:'base'});
+        });
+        var supplyRate = getBlockSupplyRate(blockName);
         var trs = lots.map(function(lot) {
-            var merged = getLotData(blockName, lot.lotName);
+            var d = getLotData(blockName, lot.lotName);
             var hasOv = !!getSafeData(getLotKey(blockName, lot.lotName));
             var bt = lot.feature.properties.blockType || '미상';
-            var kw = (merged.loadKw !== null && merged.loadKw !== undefined)
-                ? (parseFloat(merged.loadKw) || 0) : calcAutoKw(bt, lot.area).kw;
+            var area = (d.customArea > 0) ? d.customArea : lot.area;
+            var kw = (d.loadKw !== null && d.loadKw !== undefined) ? (parseFloat(d.loadKw)||0) : calcAutoKw(bt, area).kw;
+            var lotSt = (d.status !== undefined) ? parseInt(d.status) : (isAutoNoLoad(bt) ? 3 : 99);
+            var stText = getStatusText(lotSt);
+            var supplied = kw * (supplyRate / 100);
+            var lKey = getLotKey(blockName, lot.lotName);
+            var isSel = selectedParcels.has(lKey);
             var ovBadge = hasOv ? '<span style="background:#ff6d00;color:#fff;border-radius:3px;padding:1px 4px;font-size:10px;margin-left:4px;">개별</span>' : '';
             var tr = document.createElement('tr');
             tr.setAttribute('data-lot-drilldown', blockName);
-            tr.style.cssText = 'background:#f0f4ff; font-size:11px; color:#444;';
-            tr.innerHTML = '<td></td><td></td>'
+            tr.style.cssText = 'background:' + (isSel?'#e8f0fe':'#f8f9ff') + '; font-size:11px; color:#444;';
+            tr.innerHTML = '<td style="text-align:center;"><input type="checkbox" class="dash-chk" ' + (isSel?'checked':'') + ' onchange="toggleLotSel(\'' + blockName.replace(/'/g,"\\'") + '\',\'' + (lot.lotName||'').replace(/'/g,"\\'") + '\', this.checked)"></td>'
+                + '<td></td>'
                 + '<td style="padding-left:22px;">↳ ' + (lot.lotName||'-') + ovBadge + '</td>'
                 + '<td style="color:#5f6368;">' + bt + '</td>'
-                + '<td style="color:#5f6368;">' + lot.area.toLocaleString() + '</td>'
-                + '<td style="color:#1a73e8; font-weight:600;">' + kw.toLocaleString() + '</td>'
-                + '<td colspan="7"></td>';
+                + '<td>' + Math.round(area).toLocaleString() + '</td>'
+                + '<td style="color:#1a73e8; font-weight:600;">' + kw.toLocaleString(undefined,{maximumFractionDigits:1}) + '</td>'
+                + '<td>' + supplyRate + '%</td>'
+                + '<td style="color:#1a73e8;">' + supplied.toLocaleString(undefined,{maximumFractionDigits:1}) + '</td>'
+                + '<td style="color:#d93025;">' + (kw-supplied).toLocaleString(undefined,{maximumFractionDigits:1}) + '</td>'
+                + '<td><span class="badge ' + getBadgeClass(stText) + '">' + stText + '</span></td>'
+                + '<td>' + (d.ssName||'') + '</td><td>' + (d.dlName||'') + '</td><td></td>';
             return tr;
         });
         parentRow.after(...trs);
+    }
+
+    function toggleLotSel(blockName, lotName, isChecked) {
+        var lKey = getLotKey(blockName, lotName);
+        if (isChecked) selectedParcels.add(lKey); else selectedParcels.delete(lKey);
+        mapRefreshStyles();
+        renderDashboard();
     }
 
     function jumpFromDash(bName) {
@@ -2569,10 +2719,12 @@
     function saveBatchData() {
         let bSs = document.getElementById('batchSs').value.trim(); let bDl = document.getElementById('batchDl').value.trim(); let bMemo = document.getElementById('batchMemo').value.trim();
         if(bSs === "" && bDl === "" && bMemo === "") { alert("입력된 내용이 없어 기존 데이터가 유지됩니다."); closeModals(); return; }
-        selectedParcels.forEach(pId => {
-            let data = getSafeData(pId) || { customArea: null, loadKw: null, ssName: "", dlName: "", supplyRate: 0, status: 99, memo: "" };
-            if (bSs !== "") data.ssName = bSs; if (bDl !== "") data.dlName = bDl; if (bMemo !== "") data.memo = bMemo;
-            setSafeData(pId, data);
+        selectedParcels.forEach(lotKey => {
+            let data = getSafeData(lotKey) || {};
+            if (bSs !== "") data.ssName = bSs;
+            if (bDl !== "") data.dlName = bDl;
+            if (bMemo !== "") data.memo = bMemo;
+            setSafeData(lotKey, data);
         });
         selectedParcels.clear(); 
         let btn = document.getElementById('btn-multi-select');
