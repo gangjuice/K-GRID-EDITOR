@@ -327,17 +327,34 @@
         </div>
         <!-- 블록 일괄 편집 섹션 -->
         <div style="padding:10px 14px; background:#e8f4fd; border-bottom:1px solid #b3d7f5; flex-shrink:0;">
-            <div style="font-size:11px; font-weight:700; color:#1a73e8; margin-bottom:6px;">▣ 블록 일괄 편집 — 수요전력을 모든 로트에 균등 배분</div>
-            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-                <label style="font-size:11px; color:#5f6368;">블록 전체 수요전력(kW)
-                    <input id="lotBatchTotalKw" type="number" min="0" placeholder="예: 1000" style="margin-left:4px; width:80px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
+            <div style="font-size:11px; font-weight:700; color:#1a73e8; margin-bottom:6px;">▣ 블록 일괄 편집 — 모든 로트에 일괄 적용</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; margin-bottom:6px;">
+                <label style="font-size:11px; color:#5f6368; display:flex; align-items:center; gap:4px;">블록 전체 수요전력(kW)
+                    <input id="lotBatchTotalKw" type="number" min="0" placeholder="예: 1000" style="flex:1; min-width:0; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
                 </label>
-                <label style="font-size:11px; color:#5f6368;">공급률(%)
-                    <input id="lotBatchSupplyRate" type="number" min="0" max="100" placeholder="0~100" style="margin-left:4px; width:55px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
+                <label style="font-size:11px; color:#5f6368; display:flex; align-items:center; gap:4px;">공급률(%)
+                    <input id="lotBatchSupplyRate" type="number" min="0" max="100" placeholder="0~100" style="flex:1; min-width:0; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
                 </label>
-                <button onclick="applyLotBatch()" style="font-size:11px; background:#1a73e8; color:#fff; border:none; border-radius:4px; padding:5px 12px; cursor:pointer; white-space:nowrap;">▶ 로트 균등 배분</button>
+                <label style="font-size:11px; color:#5f6368; display:flex; align-items:center; gap:4px;">송전상태
+                    <select id="lotBatchStatus" style="flex:1; min-width:0; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 4px;">
+                        <option value="">변경 안함</option>
+                        <option value="99">미입력</option>
+                        <option value="1">송전완료</option>
+                        <option value="2">미송전</option>
+                        <option value="3">무부하</option>
+                    </select>
+                </label>
+                <label style="font-size:11px; color:#5f6368; display:flex; align-items:center; gap:4px;">변전소
+                    <input id="lotBatchSs" type="text" list="ssList" placeholder="변전소명" style="flex:1; min-width:0; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
+                </label>
+                <label style="font-size:11px; color:#5f6368; display:flex; align-items:center; gap:4px;">선로명
+                    <input id="lotBatchDl" type="text" list="dlList" placeholder="선로명" style="flex:1; min-width:0; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
+                </label>
             </div>
-            <div id="lotBatchPreview" style="font-size:10px; color:#5f6368; margin-top:5px;"></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <button onclick="applyLotBatch()" style="font-size:11px; background:#1a73e8; color:#fff; border:none; border-radius:4px; padding:5px 14px; cursor:pointer;">▶ 일괄 적용</button>
+                <div id="lotBatchPreview" style="font-size:10px; color:#5f6368;"></div>
+            </div>
         </div>
         <!-- 로트 개별 편집 테이블 -->
         <div style="overflow:auto; flex:1; min-height:0;">
@@ -1329,8 +1346,11 @@
         var bSupplyRate = blockData.supplyRate !== undefined ? parseInt(blockData.supplyRate) : 0;
         document.getElementById('lotBatchTotalKw').value = '';
         document.getElementById('lotBatchSupplyRate').value = bSupplyRate || '';
+        document.getElementById('lotBatchStatus').value = '';
+        document.getElementById('lotBatchSs').value = blockData.ssName || '';
+        document.getElementById('lotBatchDl').value = blockData.dlName || '';
         var preview = document.getElementById('lotBatchPreview');
-        if (preview) preview.innerText = '로트 수: ' + lots.length + '개 · 현재 블록 공급률: ' + bSupplyRate + '%';
+        if (preview) preview.innerText = '로트 수: ' + lots.length + '개 · 현재 공급률: ' + bSupplyRate + '%';
 
         var tbody = document.getElementById('lotPanelBody');
         if (lots.length === 0) {
@@ -1391,27 +1411,41 @@
         if (!lotPanelBlockName) return;
         var lots = blockLotsIndex.get(lotPanelBlockName) || [];
         var totalKw = parseFloat(document.getElementById('lotBatchTotalKw').value);
-        var supplyRate = parseInt(document.getElementById('lotBatchSupplyRate').value);
-        if (isNaN(totalKw) || totalKw <= 0) { alert('블록 전체 수요전력(kW)을 입력하세요.'); return; }
-        if (isNaN(supplyRate)) supplyRate = 0;
-        // 공급률은 블록 키에만 저장
+        var supplyRateVal = document.getElementById('lotBatchSupplyRate').value.trim();
+        var supplyRate = supplyRateVal !== '' ? parseInt(supplyRateVal) : null;
+        var bStatus = document.getElementById('lotBatchStatus').value;
+        var bSs = document.getElementById('lotBatchSs').value.trim();
+        var bDl = document.getElementById('lotBatchDl').value.trim();
+
+        // 공급률·상태·ss·dl은 블록 키에 저장 (로트가 상속)
         var blockData = getSafeData(lotPanelBlockName) || {};
-        blockData.supplyRate = supplyRate;
+        if (supplyRate !== null) blockData.supplyRate = supplyRate;
+        if (bStatus !== '') blockData.status = parseInt(bStatus);
+        if (bSs !== '') blockData.ssName = bSs;
+        if (bDl !== '') blockData.dlName = bDl;
         setSafeData(lotPanelBlockName, blockData);
-        // 각 로트에 totalKw / numLots 균등 배분
-        var numLots = lots.length || 1;
-        var perLotKw = Math.round((totalKw / numLots) * 10) / 10;
-        lots.forEach(function(lot) {
-            var key = getLotKey(lotPanelBlockName, lot.lotName);
-            var ex = getSafeData(key) || {};
-            ex.loadKw = perLotKw;
-            ex.manualKw = true;
-            setSafeData(key, ex);
-        });
+
+        var msgs = [];
+        // kW 균등 배분
+        if (!isNaN(totalKw) && totalKw > 0 && lots.length > 0) {
+            var perLotKw = Math.round((totalKw / lots.length) * 10) / 10;
+            lots.forEach(function(lot) {
+                var key = getLotKey(lotPanelBlockName, lot.lotName);
+                var ex = getSafeData(key) || {};
+                ex.loadKw = perLotKw; ex.manualKw = true;
+                setSafeData(key, ex);
+            });
+            msgs.push('로트당 ' + perLotKw.toLocaleString() + ' kW');
+        }
+        if (supplyRate !== null) msgs.push('공급률 ' + supplyRate + '%');
+        if (bStatus !== '') msgs.push('상태: ' + getStatusText(parseInt(bStatus)));
+        if (bSs !== '') msgs.push('변전소: ' + bSs);
+        if (bDl !== '') msgs.push('선로: ' + bDl);
+
         mapRefreshStyles(); renderUnconfirmedList();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
         var preview = document.getElementById('lotBatchPreview');
-        if (preview) preview.innerText = '✓ 로트당 ' + perLotKw.toLocaleString() + ' kW 배분 완료 (공급률 ' + supplyRate + '%)';
+        if (preview) preview.innerText = msgs.length ? '✓ ' + msgs.join(' · ') + ' 적용 완료' : '변경 없음';
         openLotPanel(lotPanelBlockName, lotPanelBlockType);
     }
 
