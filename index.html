@@ -805,6 +805,7 @@
 
     function tryParseJSON(str, fallback) {
         if (fallback === undefined) fallback = null;
+        if (str === null || str === undefined) return fallback;
         try { return JSON.parse(str); } catch(e) { return fallback; }
     }
 
