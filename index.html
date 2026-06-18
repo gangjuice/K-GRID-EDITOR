@@ -556,6 +556,8 @@
 <script>
     var currentProject = "default";
     var globalGeoJson = null;
+    var blockOutlineGroup = null;
+    var blockOutlinePolylines = [];
     var isNormalMap = true;
     var isBgOn = true;
     var isPolygonVisible = true;
@@ -886,7 +888,7 @@
                     if (leafletMouseoutTimer) { clearTimeout(leafletMouseoutTimer); leafletMouseoutTimer = null; }
                     var lotName = feature.properties.lotName || "";
 
-                    // 블록 전체 하이라이트 (기존 블록에서 나왔으면 원복)
+                    // 다른 블록으로 이동 시 이전 블록 원복 + 외곽선 제거
                     if (hoveredLeafletBlock !== parcelId) {
                         if (hoveredLeafletBlock && leafletBlockLayers[hoveredLeafletBlock]) {
                             leafletBlockLayers[hoveredLeafletBlock].forEach(function(item) {
@@ -894,13 +896,15 @@
                             });
                         }
                         hoveredLeafletBlock = parcelId;
+                        // ② 블록 하이라이트: 외곽 경계선
+                        showBlockOutline(parcelId);
                     }
-                    // 같은 블록: 전체 경계 강조, 호버된 lot는 더 굵고 주황
+                    // ① 로트 하이라이트: 호버된 lot만 주황, 나머지는 기본 스타일
                     (leafletBlockLayers[parcelId] || []).forEach(function(item) {
                         var iLot = item.feature.properties.lotName || "";
                         item.layer.setStyle(iLot === lotName
-                            ? { weight: 4, color: '#ff6d00' }
-                            : { weight: 2, color: '#2c3e50' });
+                            ? { weight: 3, color: '#ff6d00', fillOpacity: Math.min((1 - globalOpacity / 100) + 0.35, 0.95) }
+                            : getParcelStyle(item.feature));
                     });
 
                     // lot 단위 브리핑
@@ -941,12 +945,12 @@
 
                 layer.on('mouseout', function() {
                     document.getElementById('briefingOverlay').style.display = 'none';
-                    // Delay style restore — if mouse enters another polygon of the same block, the timer is canceled
                     leafletMouseoutTimer = setTimeout(function() {
                         if (hoveredLeafletBlock === parcelId) {
                             (leafletBlockLayers[parcelId] || []).forEach(function(item) {
                                 item.layer.setStyle(getParcelStyle(item.feature));
                             });
+                            hideBlockOutline();
                             hoveredLeafletBlock = null;
                         }
                         leafletMouseoutTimer = null;
@@ -1155,6 +1159,64 @@
     // GeoJSON blockName → feature O(1) 인덱스
     let featureIndex = new Map();
     let blockLotsIndex = new Map();
+    // ★ 블록 외곽 경계선 계산 (공유 엣지 제거 알고리즘)
+    function computeBlockOuterEdges(blockName) {
+        if (!globalGeoJson || !globalGeoJson.features) return [];
+        var edgeCount = new Map();
+        var edgeCoords = new Map();
+        function addEdge(p1, p2) {
+            var k1 = p1[0].toFixed(7) + ',' + p1[1].toFixed(7);
+            var k2 = p2[0].toFixed(7) + ',' + p2[1].toFixed(7);
+            var key = k1 < k2 ? k1 + '|' + k2 : k2 + '|' + k1;
+            edgeCount.set(key, (edgeCount.get(key) || 0) + 1);
+            if (!edgeCoords.has(key)) edgeCoords.set(key, [p1, p2]);
+        }
+        globalGeoJson.features.forEach(function(f) {
+            if (!f.properties || !f.geometry) return;
+            if ((f.properties.blockName || f.properties.zoneName) !== blockName) return;
+            var polygons = f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [f.geometry.coordinates];
+            polygons.forEach(function(poly) {
+                poly.forEach(function(ring) {
+                    for (var i = 0; i < ring.length - 1; i++) addEdge(ring[i], ring[i + 1]);
+                });
+            });
+        });
+        var outerEdges = [];
+        edgeCount.forEach(function(count, key) {
+            if (count === 1) outerEdges.push(edgeCoords.get(key));
+        });
+        return outerEdges;
+    }
+
+    function showBlockOutline(blockName) {
+        hideBlockOutline();
+        var edges = computeBlockOuterEdges(blockName);
+        if (edges.length === 0) return;
+        if (useLeaflet) {
+            blockOutlineGroup = L.layerGroup().addTo(map);
+            edges.forEach(function(edge) {
+                L.polyline(
+                    edge.map(function(p) { return [p[1], p[0]]; }),
+                    { color: '#e53935', weight: 5, opacity: 0.92, interactive: false }
+                ).addTo(blockOutlineGroup);
+            });
+        } else {
+            edges.forEach(function(edge) {
+                var pl = new naver.maps.Polyline({
+                    path: edge.map(function(p) { return new naver.maps.LatLng(p[1], p[0]); }),
+                    strokeColor: '#e53935', strokeWeight: 5, strokeOpacity: 0.92, map: map
+                });
+                blockOutlinePolylines.push(pl);
+            });
+        }
+    }
+
+    function hideBlockOutline() {
+        if (blockOutlineGroup) { map.removeLayer(blockOutlineGroup); blockOutlineGroup = null; }
+        blockOutlinePolylines.forEach(function(pl) { pl.setMap(null); });
+        blockOutlinePolylines = [];
+    }
+
     function buildFeatureIndex() {
         featureIndex.clear();
         blockLotsIndex.clear();
@@ -1436,25 +1498,29 @@
         `;
         document.getElementById('briefingOverlay').style.display = 'block';
 
-        // 같은 blockName 전체 경계 하이라이트, 호버된 lot은 더 강조
-        var isSelected = selectedParcels.has(blockName);
+        // ① 로트 하이라이트: 호버된 lot만 주황 강조
         map.data.getAllFeature().forEach(function(f) {
             var fBlock = f.getProperty('blockName') || f.getProperty('zoneName');
             if (fBlock !== blockName) return;
             var fLot = f.getProperty('lotName') || "";
-            var isHoveredLot = (fLot === lotName);
-            map.data.overrideStyle(f, {
-                strokeWeight: isHoveredLot ? 4 : 2,
-                strokeColor: isHoveredLot ? '#ff6d00' : (isSelected ? '#b31412' : '#2c3e50'),
-                fillOpacity: Math.min((1 - globalOpacity/100) + (isHoveredLot ? 0.35 : 0.15), 0.95)
-            });
+            if (fLot === lotName) {
+                map.data.overrideStyle(f, {
+                    strokeWeight: 3, strokeColor: '#ff6d00',
+                    fillOpacity: Math.min((1 - globalOpacity / 100) + 0.35, 0.95)
+                });
+            } else {
+                map.data.revertStyle(f);
+            }
         });
+        // ② 블록 하이라이트: 외곽 경계선 (공유 엣지 제거)
+        showBlockOutline(blockName);
     }
 
     function naverMouseoutHandler(e) {
         var blockName = e.feature.getProperty('blockName') || e.feature.getProperty('zoneName');
         if (!blockName) return;
         document.getElementById('briefingOverlay').style.display = 'none';
+        hideBlockOutline();
         map.data.getAllFeature().forEach(function(f) {
             if ((f.getProperty('blockName') || f.getProperty('zoneName')) === blockName) map.data.revertStyle(f);
         });
