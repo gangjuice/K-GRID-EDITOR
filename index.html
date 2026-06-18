@@ -170,6 +170,8 @@
                 <a class="dropdown-item" onclick="document.getElementById('excelUpload').click()"><span class="dropdown-icon">📥</span>데이터 불러오기 (.xlsx)</a>
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item" onclick="exportExcel()"><span class="dropdown-icon">📤</span>데이터 내보내기 (.xlsx)</a>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" onclick="exportGeoJson()"><span class="dropdown-icon">🗺️</span>도면 레이아웃 저장 (.geojson)</a>
             </div>
         </li>
         <li class="nav-item">
@@ -1889,6 +1891,19 @@
             alert("엑셀 데이터 로드 완료!");
         };
         reader.readAsArrayBuffer(file); event.target.value = ''; 
+    }
+
+    function exportGeoJson() {
+        if (!globalGeoJson) { alert("도면이 없습니다."); return; }
+        var json = JSON.stringify(globalGeoJson, null, 2);
+        var blob = new Blob([json], { type: 'application/json' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = (currentProject || 'map') + '_edited.geojson';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
     }
 
     function exportExcel() {
