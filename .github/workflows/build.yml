@@ -7,6 +7,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: '릴리즈 버전 (예: v1.0.1) - 비워두면 latest로 생성'
+        required: false
+        default: 'latest'
 
 jobs:
   build:
@@ -33,12 +38,24 @@ jobs:
           name: K-GRID-EDITOR
           path: dist/*
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (tag push)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           name: K-GRID-EDITOR ${{ github.ref_name }}
           files: dist/*
           generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: K-GRID-EDITOR ${{ github.event.inputs.version }}
+          files: dist/*
+          prerelease: ${{ github.event.inputs.version == 'latest' }}
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
