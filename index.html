@@ -539,6 +539,7 @@
     var highlightedLegend = null;
     var useLeaflet = false;
     var leafletGeoJsonLayer = null;
+    var leafletBlockLayers = {};
 
     const rateCategories = {
         "주거시설": { "단독주택": 0.05, "아파트": 0.08, "도시형생활주택용지": 0.06, "주상복합": 0.1 },
@@ -713,6 +714,7 @@
     function mapClearFeatures() {
         if (useLeaflet) {
             if (leafletGeoJsonLayer) { map.removeLayer(leafletGeoJsonLayer); leafletGeoJsonLayer = null; }
+            leafletBlockLayers = {};
         } else {
             var toRemove = [];
             if (map && map.data && map.data.forEach) map.data.forEach(function(f) { toRemove.push(f); });
@@ -777,10 +779,27 @@
     function renderLeafletLayer() {
         if (!globalGeoJson) return;
         if (leafletGeoJsonLayer) { map.removeLayer(leafletGeoJsonLayer); leafletGeoJsonLayer = null; }
+        leafletBlockLayers = {};
+
+        // 같은 blockName 폴리곤들의 합산 면적을 미리 계산
+        var blockAreaCache = {};
+        if (globalGeoJson.features) {
+            globalGeoJson.features.forEach(function(f) {
+                if (!f.properties || !f.geometry) return;
+                var id = f.properties.blockName || f.properties.zoneName || "알수없음";
+                var fa = f.properties.area || f.properties.면적 || f.properties.SHAPE_Area;
+                blockAreaCache[id] = (blockAreaCache[id] || 0) + (fa ? parseFloat(fa) : calculateAreaM2(f.geometry.coordinates));
+            });
+        }
+
         leafletGeoJsonLayer = L.geoJSON(globalGeoJson, {
             style: getParcelStyle,
             onEachFeature: function(feature, layer) {
                 var parcelId = feature.properties.blockName || feature.properties.zoneName || "알수없음";
+                // 블록별 레이어 목록 등록 ({layer, feature} 쌍으로 저장)
+                if (!leafletBlockLayers[parcelId]) leafletBlockLayers[parcelId] = [];
+                leafletBlockLayers[parcelId].push({ layer: layer, feature: feature });
+
                 layer.on('click', function(e) {
                     var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
                     if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
@@ -791,11 +810,11 @@
                         if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
                         return;
                     }
-                    var area = feature.properties.area || feature.properties.면적;
-                    if (!area && feature.geometry && feature.geometry.coordinates) area = calculateAreaM2(feature.geometry.coordinates);
                     var data = getSafeData(parcelId) || { customArea: null, loadKw: null, ssName: "", dlName: "", supplyRate: 0, status: 99, memo: "" };
-                    openEditModal(parcelId, blockType, Math.round(area || 0), data);
+                    var area = data.customArea > 0 ? data.customArea : Math.round(blockAreaCache[parcelId] || 0);
+                    openEditModal(parcelId, blockType, area, data);
                 });
+
                 layer.on('contextmenu', function(e) {
                     L.DomEvent.preventDefault(e);
                     var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
@@ -809,24 +828,14 @@
                     if (y + 180 > window.innerHeight) y = window.innerHeight - 185;
                     menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
                 });
+
                 layer.on('mouseover', function(e) {
                     var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
                     if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
                     var data = getSafeData(parcelId) || {};
                     var st = (data.status !== undefined) ? parseInt(data.status) : (isAutoNoLoad(blockType) ? 3 : 99);
                     var statusText = (st === 1) ? "송전완료" : (st === 2 || st === 0) ? "미송전" : (st === 3) ? "무부하" : "미입력";
-                    var calcArea = 0;
-                    if (globalGeoJson && globalGeoJson.features) {
-                        for (var gf of globalGeoJson.features) {
-                            var gfName = gf.properties && (gf.properties.blockName || gf.properties.zoneName);
-                            if (gfName === parcelId) {
-                                var propArea = gf.properties.area || gf.properties.면적 || gf.properties.SHAPE_Area;
-                                calcArea = propArea ? parseFloat(propArea) : (gf.geometry && gf.geometry.coordinates ? calculateAreaM2(gf.geometry.coordinates) : 0);
-                                break;
-                            }
-                        }
-                    }
-                    calcArea = Math.round(calcArea || 0);
+                    var calcArea = Math.round(blockAreaCache[parcelId] || 0);
                     var area = (data.customArea > 0) ? data.customArea : calcArea;
                     var loadKw = (data.loadKw !== undefined && data.loadKw !== null) ? parseFloat(data.loadKw) : null;
                     var calcVal = 0, matchedKey = "";
@@ -852,11 +861,18 @@
                         ${data.memo ? `<div class="briefing-row"><span class="briefing-label">메모:</span><span class="briefing-value">${data.memo}</span></div>` : ''}
                     `;
                     document.getElementById('briefingOverlay').style.display = 'block';
-                    layer.setStyle({ weight: 3, color: '#000000' });
+                    // 같은 blockName의 모든 폴리곤 하이라이트
+                    (leafletBlockLayers[parcelId] || []).forEach(function(item) {
+                        item.layer.setStyle({ weight: 3, color: '#000000' });
+                    });
                 });
+
                 layer.on('mouseout', function() {
                     document.getElementById('briefingOverlay').style.display = 'none';
-                    layer.setStyle(getParcelStyle(feature));
+                    // 같은 blockName의 모든 폴리곤 스타일 복원
+                    (leafletBlockLayers[parcelId] || []).forEach(function(item) {
+                        item.layer.setStyle(getParcelStyle(item.feature));
+                    });
                 });
             }
         }).addTo(map);
