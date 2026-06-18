@@ -187,6 +187,7 @@
                 <a class="dropdown-item" id="menu-polygon" onclick="togglePolygon()"><span class="dropdown-icon">👁️</span>토지이용계획 도면 끄기</a>
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item" id="menu-labels" onclick="toggleLabels()"><span class="dropdown-icon">🔠</span>블럭명 오버레이 켜기</a>
+                <a class="dropdown-item" id="menu-lot-labels" onclick="toggleLotLabels()"><span class="dropdown-icon">🏷️</span>로트명 오버레이 켜기</a>
             </div>
         </li>
         <li class="nav-item">
@@ -313,6 +314,39 @@
     </div>
 
     <div id="saveToast" style="position:fixed; bottom:60px; left:50%; transform:translateX(-50%); background:#202124; color:white; padding:10px 24px; border-radius:20px; font-size:13px; z-index:9999; opacity:0; transition:opacity 0.3s; pointer-events:none;">💾 저장 완료</div>
+
+    <!-- ★ Lot 패널 -->
+    <div id="lotPanelOverlay" onclick="closeLotPanel()" style="display:none; position:fixed; inset:0; z-index:2900;"></div>
+    <div id="lotPanel" style="display:none; position:fixed; right:20px; top:80px; width:440px; max-height:calc(100vh - 100px); background:#fff; border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,0.22); z-index:3000; overflow:hidden; flex-direction:column;">
+        <div style="padding:14px 18px; background:#1a73e8; color:#fff; flex-shrink:0;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <div>
+                    <div id="lotPanelTitle" style="font-size:15px; font-weight:bold; margin-bottom:3px;"></div>
+                    <div id="lotPanelSubtitle" style="font-size:12px; opacity:0.85;"></div>
+                </div>
+                <button onclick="closeLotPanel()" style="background:none; border:none; color:#fff; font-size:18px; cursor:pointer; padding:0; line-height:1;">✕</button>
+            </div>
+        </div>
+        <div style="overflow-x:auto; flex-shrink:0;">
+            <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                <thead>
+                    <tr style="background:#f1f3f4; color:#5f6368;">
+                        <th style="padding:8px 10px; text-align:left; font-weight:600; white-space:nowrap;">로트명</th>
+                        <th style="padding:8px 10px; text-align:right; font-weight:600; white-space:nowrap;">면적(m²)</th>
+                        <th style="padding:8px 10px; text-align:right; font-weight:600; white-space:nowrap;">예측kW</th>
+                        <th style="padding:8px 10px; text-align:center; font-weight:600; white-space:nowrap;">상태</th>
+                    </tr>
+                </thead>
+                <tbody id="lotPanelBody"></tbody>
+            </table>
+        </div>
+        <div id="lotPanelTotalRow" style="padding:8px 12px; background:#e8f0fe; border-top:2px solid #1a73e8; font-size:13px; font-weight:bold; color:#1a73e8; flex-shrink:0;"></div>
+        <div style="padding:10px 14px; border-top:1px solid #ebebeb; display:flex; gap:8px; justify-content:flex-end; flex-shrink:0; background:#fafafa;">
+            <button onclick="openEditModalFromLotPanel()" class="btn btn-save" style="font-size:12px; padding:6px 12px;">⚙️ 블록 기본값</button>
+            <button onclick="saveLotPanelData()" class="btn btn-save" style="font-size:12px; padding:6px 12px; background:#34a853;">💾 저장</button>
+            <button onclick="closeLotPanel()" class="btn btn-cancel" style="font-size:12px; padding:6px 12px;">✖ 닫기</button>
+        </div>
+    </div>
 
     <div id="briefingOverlay">
         <div style="margin-bottom: 10px; font-weight: bold; color: #1a73e8; border-bottom: 2px solid #1a73e8; padding-bottom: 8px;">📋 필지 정보</div>
@@ -828,9 +862,7 @@
                         if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
                         return;
                     }
-                    var data = getSafeData(parcelId) || { customArea: null, loadKw: null, ssName: "", dlName: "", supplyRate: 0, status: 99, memo: "" };
-                    var area = data.customArea > 0 ? data.customArea : Math.round(blockAreaCache[parcelId] || 0);
-                    openEditModal(parcelId, blockType, area, data);
+                    openLotPanel(parcelId, blockType);
                 });
 
                 layer.on('contextmenu', function(e) {
@@ -869,18 +901,14 @@
                     var statusText = (st === 1) ? "송전완료" : (st === 2 || st === 0) ? "미송전" : (st === 3) ? "무부하" : "미입력";
                     var calcArea = Math.round(blockAreaCache[parcelId] || 0);
                     var area = (data.customArea > 0) ? data.customArea : calcArea;
-                    var loadKw = (data.loadKw !== undefined && data.loadKw !== null) ? parseFloat(data.loadKw) : null;
-                    var calcVal = 0, matchedKey = "";
-                    for (var key in loadRateDict) {
-                        var cleanType = blockType.replace(/용지|부지|시설/g, "");
-                        if (blockType.includes(key) || key.includes(cleanType)) { calcVal = Math.round(area * loadRateDict[key]); matchedKey = key; break; }
-                    }
-                    var kw = (loadKw !== null && loadKw > 0) ? loadKw : (matchedKey !== "" ? calcVal : 0);
+                    var kw = getBlockTotalKw(parcelId);
                     var supplyRate = (data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((st === 1) ? 100 : 0);
                     var supplied = kw * (supplyRate / 100) || 0;
                     var remain = kw - supplied || 0;
+                    var lLots = blockLotsIndex.get(parcelId) || [];
+                    var lLotStr = lLots.length > 0 ? ` (${lLots.length}로트)` : '';
                     document.getElementById('briefingContent').innerHTML = `
-                        <div class="briefing-title">${parcelId}</div>
+                        <div class="briefing-title">${parcelId}${lLotStr}</div>
                         <div class="briefing-row"><span class="briefing-label">용도:</span><span class="briefing-value">${blockType}</span></div>
                         <div class="briefing-row"><span class="briefing-label">필지 면적:</span><span class="briefing-value">${area.toFixed(0)}㎡</span></div>
                         <div class="briefing-row"><span class="briefing-label">수요부하:</span><span class="briefing-value">${kw.toFixed(1)}kW</span></div>
@@ -946,6 +974,41 @@
     document.addEventListener('keydown', function(e) {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveAllData(); }
     });
+
+    function getLotKey(blockName, lotName) {
+        return lotName ? blockName + '___' + lotName : blockName;
+    }
+
+    function getLotData(blockName, lotName) {
+        var blockDefault = getSafeData(blockName) || {};
+        if (!lotName) return blockDefault;
+        var override = getSafeData(getLotKey(blockName, lotName));
+        if (!override) return blockDefault;
+        return Object.assign({}, blockDefault, override);
+    }
+
+    function getBlockTotalKw(blockName) {
+        var lots = blockLotsIndex.get(blockName);
+        if (!lots || lots.length === 0) {
+            var data = getSafeData(blockName) || {};
+            var f = featureIndex.get(blockName);
+            if (!f) return 0;
+            var bt = f.properties.blockType || '미상';
+            var area = (data.customArea > 0) ? data.customArea : Math.round(blockAreaCache[blockName] || 0);
+            if (data.loadKw !== null && data.loadKw !== undefined) return parseFloat(data.loadKw) || 0;
+            return calcAutoKw(bt, area).kw;
+        }
+        var total = 0;
+        lots.forEach(function(lot) {
+            var merged = getLotData(blockName, lot.lotName);
+            var blockType = lot.feature.properties.blockType || '미상';
+            var area = (merged.customArea > 0) ? merged.customArea : lot.area;
+            total += (merged.loadKw !== null && merged.loadKw !== undefined)
+                ? (parseFloat(merged.loadKw) || 0)
+                : calcAutoKw(blockType, area).kw;
+        });
+        return total;
+    }
 
     function setSafeData(parcelId, dataObj) {
         // localStorage에 저장 (캐시)
@@ -1075,14 +1138,121 @@
 
     // GeoJSON blockName → feature O(1) 인덱스
     let featureIndex = new Map();
+    let blockLotsIndex = new Map();
     function buildFeatureIndex() {
         featureIndex.clear();
+        blockLotsIndex.clear();
         if (!globalGeoJson || !globalGeoJson.features) return;
         globalGeoJson.features.forEach(f => {
             if (!f.properties) return;
             let name = f.properties.blockName || f.properties.zoneName;
-            if (name && !featureIndex.has(name)) featureIndex.set(name, f);
+            if (!name) return;
+            if (!featureIndex.has(name)) featureIndex.set(name, f);
+            let lots = blockLotsIndex.get(name) || [];
+            let lotName = f.properties.lotName || "";
+            let area = (f.geometry && f.geometry.coordinates) ? Math.round(calculateAreaM2(f.geometry.coordinates)) : 0;
+            lots.push({ lotName, feature: f, area });
+            blockLotsIndex.set(name, lots);
         });
+    }
+
+    // ★ Lot 패널
+    var lotPanelBlockName = null;
+    var lotPanelBlockType = null;
+
+    function openLotPanel(blockName, blockType) {
+        lotPanelBlockName = blockName;
+        lotPanelBlockType = blockType || (featureIndex.get(blockName) ? (featureIndex.get(blockName).properties.blockType || '미상') : '미상');
+        var lots = blockLotsIndex.get(blockName) || [];
+        var totalKw = getBlockTotalKw(blockName);
+
+        document.getElementById('lotPanelTitle').innerText = blockName + '  (' + lotPanelBlockType + ')';
+        document.getElementById('lotPanelSubtitle').innerText = lots.length + '개 로트 · 블록 총 예측 ' + totalKw.toLocaleString() + ' kW';
+
+        var tbody = document.getElementById('lotPanelBody');
+        if (lots.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="padding:20px; text-align:center; color:#888;">lotName 정보 없음</td></tr>';
+        } else {
+            tbody.innerHTML = lots.map(function(lot, idx) {
+                var merged = getLotData(blockName, lot.lotName);
+                var hasOverride = !!getSafeData(getLotKey(blockName, lot.lotName));
+                var kw = (merged.loadKw !== null && merged.loadKw !== undefined)
+                    ? (parseFloat(merged.loadKw) || 0)
+                    : calcAutoKw(lotPanelBlockType, lot.area).kw;
+                var badge = hasOverride
+                    ? '<span style="font-size:10px; background:#ff6d00; color:#fff; border-radius:4px; padding:1px 5px; margin-left:4px;">개별</span>'
+                    : '<span style="font-size:10px; background:#9aa0a6; color:#fff; border-radius:4px; padding:1px 5px; margin-left:4px;">기본</span>';
+                var stText = getStatusText(merged.status !== undefined ? merged.status : 99);
+                var stColor = stText === '송전완료' ? '#1a73e8' : stText === '미송전' ? '#d93025' : stText === '무부하' ? '#9aa0a6' : '#f9ab00';
+                return '<tr style="border-bottom:1px solid #f1f3f4;">'
+                    + '<td style="padding:8px 10px; font-weight:600;">' + (lot.lotName || '-') + badge + '</td>'
+                    + '<td style="padding:8px 10px; text-align:right; color:#5f6368;">' + lot.area.toLocaleString() + '</td>'
+                    + '<td style="padding:8px 10px; text-align:right;">'
+                    +   '<input type="number" data-lot-idx="' + idx + '" data-lot-name="' + (lot.lotName||'') + '" value="' + kw + '" '
+                    +   'style="width:75px; text-align:right; border:1px solid ' + (hasOverride ? '#ff6d00' : '#dadce0') + '; border-radius:4px; padding:3px 6px; font-size:12px; background:' + (hasOverride ? '#fff8f3' : '#f8f9fa') + ';">'
+                    + '</td>'
+                    + '<td style="padding:8px 10px; text-align:center; font-size:11px; color:' + stColor + '; font-weight:bold;">' + stText + '</td>'
+                    + '</tr>';
+            }).join('');
+        }
+
+        document.getElementById('lotPanelTotalRow').innerText = '블록 합계 예측수요전력: ' + totalKw.toLocaleString() + ' kW';
+
+        var panel = document.getElementById('lotPanel');
+        panel.style.display = 'flex';
+        document.getElementById('lotPanelOverlay').style.display = 'block';
+    }
+
+    function closeLotPanel() {
+        document.getElementById('lotPanel').style.display = 'none';
+        document.getElementById('lotPanelOverlay').style.display = 'none';
+        lotPanelBlockName = null;
+    }
+
+    function saveLotPanelData() {
+        if (!lotPanelBlockName) return;
+        var lots = blockLotsIndex.get(lotPanelBlockName) || [];
+        var blockDefault = getSafeData(lotPanelBlockName) || {};
+        var inputs = document.querySelectorAll('#lotPanelBody input[data-lot-idx]');
+        inputs.forEach(function(input) {
+            var lotName = input.getAttribute('data-lot-name');
+            var kwVal = parseFloat(input.value);
+            if (isNaN(kwVal)) return;
+            var defaultKw = (blockDefault.loadKw !== null && blockDefault.loadKw !== undefined)
+                ? parseFloat(blockDefault.loadKw)
+                : calcAutoKw(lotPanelBlockType, lots[parseInt(input.getAttribute('data-lot-idx'))].area).kw;
+            var key = getLotKey(lotPanelBlockName, lotName);
+            if (Math.abs(kwVal - defaultKw) < 0.01) {
+                // 기본값과 같으면 오버라이드 삭제
+                var existing = getSafeData(key);
+                if (existing) {
+                    delete existing.loadKw;
+                    if (Object.keys(existing).length === 0) {
+                        localStorage.removeItem(currentProject + '_parcel_' + key);
+                    } else {
+                        setSafeData(key, existing);
+                    }
+                }
+            } else {
+                var existing = getSafeData(key) || {};
+                existing.loadKw = kwVal;
+                existing.manualKw = true;
+                setSafeData(key, existing);
+            }
+        });
+        var toast = document.getElementById('saveToast');
+        if (toast) { toast.style.opacity = '1'; setTimeout(() => { toast.style.opacity = '0'; }, 1500); }
+        openLotPanel(lotPanelBlockName, lotPanelBlockType); // 패널 새로고침
+    }
+
+    function openEditModalFromLotPanel() {
+        if (!lotPanelBlockName) return;
+        var f = featureIndex.get(lotPanelBlockName);
+        var blockType = lotPanelBlockType;
+        var data = getSafeData(lotPanelBlockName) || { customArea: null, loadKw: null, ssName: "", dlName: "", supplyRate: 0, status: 99, memo: "" };
+        var area = data.customArea > 0 ? data.customArea : Math.round(blockAreaCache[lotPanelBlockName] || 0);
+        closeLotPanel();
+        openEditModal(lotPanelBlockName, blockType, area, data);
     }
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -1211,22 +1381,16 @@
         calcArea = Math.round(calcArea || 0);
         let area = (data.customArea > 0) ? data.customArea : calcArea;
 
-        let loadKw = (data.loadKw !== undefined && data.loadKw !== null) ? parseFloat(data.loadKw) : null;
-        let calcVal = 0; let matchedKey = "";
-        for (let key in loadRateDict) {
-            let cleanType = blockType.replace(/용지|부지|시설/g, "");
-            if (blockType.includes(key) || key.includes(cleanType)) { calcVal = Math.round(area * loadRateDict[key]); matchedKey = key; break; }
-        }
-        let kw = 0;
-        if (loadKw !== null && loadKw > 0) kw = loadKw;
-        else if (matchedKey !== "") kw = calcVal;
+        let kw = getBlockTotalKw(targetName);
 
         let supplyRate = (data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((st === 1) ? 100 : 0);
         let supplied = kw * (supplyRate / 100) || 0;
         let remain = kw - supplied || 0;
 
+        let bLots = blockLotsIndex.get(targetName) || [];
+        let lotInfoStr = bLots.length > 0 ? ` (${bLots.length}로트)` : '';
         let briefingHtml = `
-            <div class="briefing-title">${targetName}</div>
+            <div class="briefing-title">${targetName}${lotInfoStr}</div>
             <div class="briefing-row"><span class="briefing-label">용도:</span><span class="briefing-value">${blockType}</span></div>
             <div class="briefing-row"><span class="briefing-label">필지 면적:</span><span class="briefing-value">${area.toFixed(0)}㎡</span></div>
             <div class="briefing-row"><span class="briefing-label">수요부하:</span><span class="briefing-value">${kw.toFixed(1)}kW</span></div>
@@ -1292,8 +1456,7 @@
             area = coords ? calculateAreaM2(coords) : 0;
         }
 
-        var data = getSafeData(parcelId) || { customArea: null, loadKw: null, ssName: "", dlName: "", supplyRate: 0, status: 99, memo: "" };
-        openEditModal(parcelId, blockType, Math.round(area), data);
+        openLotPanel(parcelId, blockType);
     }
 
     function naverRightclickHandler(e) {
@@ -1503,30 +1666,49 @@
         return { lat: (minY + maxY) / 2, lng: (minX + maxX) / 2 };
     }
 
+    var showLotLabels = false;
+
     function toggleLabels() {
         showLabels = !showLabels;
         document.getElementById('menu-labels').innerHTML = showLabels ? "<span class='dropdown-icon'>🔠</span>블럭명 오버레이 끄기" : "<span class='dropdown-icon'>🔠</span>블럭명 오버레이 켜기";
-        if (useLeaflet) return; // Leaflet 모드에서는 레이블 별도 구현 불필요
+        if (!showLabels) showLotLabels = false;
+        if (document.getElementById('menu-lot-labels')) document.getElementById('menu-lot-labels').innerHTML = "<span class='dropdown-icon'>🏷️</span>로트명 오버레이 켜기";
+        if (useLeaflet) return;
+        _renderLabels();
+    }
+
+    function toggleLotLabels() {
+        if (!showLabels) { showLabels = true; document.getElementById('menu-labels').innerHTML = "<span class='dropdown-icon'>🔠</span>블럭명 오버레이 끄기"; }
+        showLotLabels = !showLotLabels;
+        if (document.getElementById('menu-lot-labels')) document.getElementById('menu-lot-labels').innerHTML = showLotLabels ? "<span class='dropdown-icon'>🏷️</span>로트명 오버레이 끄기" : "<span class='dropdown-icon'>🏷️</span>로트명 오버레이 켜기";
+        if (useLeaflet) return;
+        _renderLabels();
+    }
+
+    function _renderLabels() {
         for(let i=0; i<labelMarkers.length; i++) labelMarkers[i].setMap(null);
         labelMarkers = [];
-        if (showLabels && globalGeoJson && globalGeoJson.features) {
-            for(let i=0; i<globalGeoJson.features.length; i++) {
-                let f = globalGeoJson.features[i];
-                if(!f || !f.properties || !f.geometry) continue;
-                let blockName = f.properties.blockName || f.properties.zoneName;
-                if (!blockName) continue;
-                let centroid = getVisualCentroid(f.geometry.coordinates);
-                if (centroid) {
-                    let marker = new naver.maps.Marker({
-                        position: new naver.maps.LatLng(centroid.lat, centroid.lng), map: map,
-                        icon: {
-                            content: `<div style="color:#2c3e50; font-size:12px; font-weight:900; text-shadow: -1.5px -1.5px 0 #fff, 1.5px -1.5px 0 #fff, -1.5px 1.5px 0 #fff, 1.5px 1.5px 0 #fff; pointer-events:none; white-space:nowrap; transform: translate(-50%, -50%);">${blockName}</div>`,
-                            anchor: new naver.maps.Point(0, 0)
-                        },
-                        visible: isPolygonVisible
-                    });
-                    labelMarkers.push(marker);
-                }
+        if (!showLabels || !globalGeoJson || !globalGeoJson.features) return;
+        for(let i=0; i<globalGeoJson.features.length; i++) {
+            let f = globalGeoJson.features[i];
+            if(!f || !f.properties || !f.geometry) continue;
+            let blockName = f.properties.blockName || f.properties.zoneName;
+            if (!blockName) continue;
+            let lotName = f.properties.lotName || "";
+            let labelText = showLotLabels && lotName ? blockName + '\n' + lotName : blockName;
+            let centroid = getVisualCentroid(f.geometry.coordinates);
+            if (centroid) {
+                let lines = labelText.split('\n');
+                let html = lines.map((l,idx) => `<div style="line-height:1.3; ${idx>0?'color:#1a73e8; font-size:11px;':''}">${l}</div>`).join('');
+                let marker = new naver.maps.Marker({
+                    position: new naver.maps.LatLng(centroid.lat, centroid.lng), map: map,
+                    icon: {
+                        content: `<div style="color:#2c3e50; font-size:12px; font-weight:900; text-shadow: -1.5px -1.5px 0 #fff, 1.5px -1.5px 0 #fff, -1.5px 1.5px 0 #fff, 1.5px 1.5px 0 #fff; pointer-events:none; white-space:nowrap; transform: translate(-50%, -50%); text-align:center;">${html}</div>`,
+                        anchor: new naver.maps.Point(0, 0)
+                    },
+                    visible: isPolygonVisible
+                });
+                labelMarkers.push(marker);
             }
         }
     }
@@ -1611,27 +1793,17 @@
             var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
             var data = getSafeData(blockName);
             var st = undefined, supplyRate = 0, loadKw = null, customArea = null;
-            
+
             let calcArea = feature.properties.area || feature.properties.면적 || feature.properties.SHAPE_Area;
             if (!calcArea && feature.geometry && feature.geometry.coordinates) calcArea = calculateAreaM2(feature.geometry.coordinates);
             calcArea = Math.round(calcArea || 0);
 
-            if (data) { 
-                st = parseInt(data.status); loadKw = data.loadKw !== null ? parseFloat(data.loadKw) : null; 
+            if (data) {
+                st = parseInt(data.status); loadKw = data.loadKw !== null ? parseFloat(data.loadKw) : null;
                 customArea = data.customArea ? Math.round(data.customArea) : null;
             }
             let finalArea = customArea || calcArea;
-
-            let calcVal = 0; let matchedKey = "";
-            for (let key in loadRateDict) {
-                let cleanType = blockType.replace(/용지|부지|시설/g, "");
-                if (blockType.includes(key) || key.includes(cleanType)) { calcVal = Math.round(finalArea * loadRateDict[key]); matchedKey = key; break; }
-            }
-
-            let finalKw = 0;
-            if (loadKw !== null && loadKw > 0) finalKw = loadKw;
-            else if (matchedKey !== "") finalKw = calcVal;
-            else if (loadKw === 0) finalKw = 0;
+            let finalKw = getBlockTotalKw(blockName);
 
             if (st === undefined || isNaN(st)) st = isAutoNoLoad(blockType) ? 3 : 99;
             supplyRate = (data && data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((st === 1) ? 100 : 0);
@@ -1724,9 +1896,12 @@
         filtered.forEach(d => {
             sumArea += d.area; sumKw += d.kw; sumSupplied += d.supplied; sumRemain += d.remain;
             let isSel = selectedParcels.has(d.name);
-            html += `<tr class="${isSel?'selected':''}" ondblclick="jumpFromDash('${d.name}')">
+            let lots = blockLotsIndex.get(d.name) || [];
+            let lotBtn = lots.length > 0 ? `<button onclick="event.stopPropagation(); toggleLotDrilldown('${d.name}')" style="margin-left:6px; font-size:10px; background:#e8f0fe; border:none; border-radius:3px; padding:1px 5px; color:#1a73e8; cursor:pointer;">▶ ${lots.length}로트</button>` : '';
+            let safeN = d.name.replace(/'/g, "\\'");
+            html += `<tr class="${isSel?'selected':''}" data-block-row="${d.name}" ondblclick="jumpFromDash('${safeN}')">
                 <td style="text-align:center;"><input type="checkbox" class="dash-chk row-chk" value="${d.name}" ${isSel?'checked':''} onclick="event.stopPropagation();" onchange="toggleParcelSel('${d.name}', this.checked)"></td>
-                <td>${d.id}</td><td style="font-weight:bold;">${d.name}</td><td>${d.type}</td>
+                <td>${d.id}</td><td style="font-weight:bold;">${d.name}${lotBtn}</td><td>${d.type}</td>
                 <td>${d.area.toLocaleString()}</td><td>${d.kw.toLocaleString()}</td>
                 <td>${d.rate}%</td>
                 <td style="color:#1a73e8;">${d.supplied.toLocaleString(undefined,{maximumFractionDigits:1})}</td>
@@ -1748,6 +1923,33 @@
 
         document.getElementById('dashBody').innerHTML = html;
         document.getElementById('dashCount').innerText = `(${filtered.length}건)`;
+    }
+
+    function toggleLotDrilldown(blockName) {
+        var existing = document.querySelectorAll('[data-lot-drilldown="' + blockName + '"]');
+        if (existing.length > 0) { existing.forEach(r => r.remove()); return; }
+        var parentRow = document.querySelector('[data-block-row="' + blockName + '"]');
+        if (!parentRow) return;
+        var lots = blockLotsIndex.get(blockName) || [];
+        var trs = lots.map(function(lot) {
+            var merged = getLotData(blockName, lot.lotName);
+            var hasOv = !!getSafeData(getLotKey(blockName, lot.lotName));
+            var bt = lot.feature.properties.blockType || '미상';
+            var kw = (merged.loadKw !== null && merged.loadKw !== undefined)
+                ? (parseFloat(merged.loadKw) || 0) : calcAutoKw(bt, lot.area).kw;
+            var ovBadge = hasOv ? '<span style="background:#ff6d00;color:#fff;border-radius:3px;padding:1px 4px;font-size:10px;margin-left:4px;">개별</span>' : '';
+            var tr = document.createElement('tr');
+            tr.setAttribute('data-lot-drilldown', blockName);
+            tr.style.cssText = 'background:#f0f4ff; font-size:11px; color:#444;';
+            tr.innerHTML = '<td></td><td></td>'
+                + '<td style="padding-left:22px;">↳ ' + (lot.lotName||'-') + ovBadge + '</td>'
+                + '<td style="color:#5f6368;">' + bt + '</td>'
+                + '<td style="color:#5f6368;">' + lot.area.toLocaleString() + '</td>'
+                + '<td style="color:#1a73e8; font-weight:600;">' + kw.toLocaleString() + '</td>'
+                + '<td colspan="7"></td>';
+            return tr;
+        });
+        parentRow.after(...trs);
     }
 
     function jumpFromDash(bName) {
@@ -1825,16 +2027,35 @@
         reader.onload = function(e) {
             var data = new Uint8Array(e.target.result); var workbook = XLSX.read(data, {type: 'array'});
             var firstSheet = workbook.Sheets[workbook.SheetNames[0]]; var excelRows = XLSX.utils.sheet_to_json(firstSheet);
+            var hasLotCol = excelRows.length > 0 && ("로트명" in excelRows[0]);
             excelRows.forEach(row => {
                 var blockName = row["블럭명"]; if (!blockName || blockName === "알수없음") return;
-                var stVal = row["송전상태(1:완료, 0:미송전, -1:해당없음)"]; var status = 99; 
-                if (stVal === 1) status = 1; else if (stVal === 0) status = 2; else if (stVal === -1) status = 3; 
+                var lotName = hasLotCol ? (row["로트명"] || "") : "";
+                var stVal = row["송전상태(1:완료, 0:미송전, -1:해당없음)"]; var status = 99;
+                if (stVal === 1) status = 1; else if (stVal === 0) status = 2; else if (stVal === -1) status = 3;
                 var loadKw = parseFloat(row["수요예측(kW)"] || row["전체할당부하(kW)"]); if(isNaN(loadKw)) loadKw = null;
                 var supplyRate = parseInt(row["공급률(%)"]); if (isNaN(supplyRate)) supplyRate = (status === 1) ? 100 : 0;
                 var ssName = row["변전소명"] || ""; var dlName = row["배전선로"] || ""; var memo = row["메모"] || "";
                 var customArea = parseFloat(row["필지면적(m2)"]) || null;
-                
-                setSafeData(blockName, { customArea: customArea, loadKw: loadKw, manualKw: loadKw !== null, ssName: ssName, dlName: dlName, memo: memo, supplyRate: supplyRate, status: status });
+
+                if (hasLotCol && lotName) {
+                    // lot 오버라이드: kW만 저장 (다른 속성은 블록 기본값에서 병합)
+                    var lotKey = getLotKey(blockName, lotName);
+                    var kwSource = row["kW출처"] || "";
+                    if (kwSource !== "블록기본") {
+                        var existing = getSafeData(lotKey) || {};
+                        existing.loadKw = loadKw; existing.manualKw = loadKw !== null;
+                        setSafeData(lotKey, existing);
+                    }
+                    // 블록 기본값에 상태/변전소 등은 첫 번째 row에서 저장
+                    var blockExisting = getSafeData(blockName) || {};
+                    if (!blockExisting._importedBase) {
+                        setSafeData(blockName, Object.assign(blockExisting, { ssName, dlName, memo, supplyRate, status, _importedBase: true }));
+                    }
+                } else {
+                    // 구형(블록 단위) 또는 lot 없는 블록
+                    setSafeData(blockName, { customArea, loadKw, manualKw: loadKw !== null, ssName, dlName, memo, supplyRate, status });
+                }
             });
             mapRefreshStyles(); updateDatalists(); renderUnconfirmedList();
             if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
@@ -1864,45 +2085,59 @@
             if(!feature.properties) return;
             var blockName = feature.properties.blockName || feature.properties.zoneName || "알수없음";
             if(exportedBlocks.has(blockName)) return;
-            var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
-            var data = getSafeData(blockName); var st = undefined, supplyRate = 0, loadKw = null, exportStatus = 99, customArea = null;
-            let calcArea = feature.properties.area || feature.properties.면적 || feature.properties.SHAPE_Area;
-            if (!calcArea && feature.geometry && feature.geometry.coordinates) calcArea = calculateAreaM2(feature.geometry.coordinates);
-            calcArea = Math.round(calcArea || 0);
-            
-            if (data) { 
-                st = parseInt(data.status); loadKw = data.loadKw !== null ? parseFloat(data.loadKw) : null; 
-                customArea = data.customArea ? Math.round(data.customArea) : null; 
-            }
-            let finalArea = customArea || calcArea;
-
-            let calcVal = 0; let matchedKey = "";
-            for (let key in loadRateDict) {
-                let cleanType = blockType.replace(/용지|부지|시설/g, "");
-                if (blockType.includes(key) || key.includes(cleanType)) { calcVal = Math.round(finalArea * loadRateDict[key]); matchedKey = key; break; }
-            }
-
-            let finalKw = 0;
-            if (loadKw !== null && loadKw > 0) finalKw = loadKw;
-            else if (matchedKey !== "") finalKw = calcVal;
-            else if (loadKw === 0) finalKw = 0;
-
-            if (st === undefined || isNaN(st)) st = isAutoNoLoad(blockType) ? 3 : 99;
-            supplyRate = (data && data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((st === 1) ? 100 : 0);
-            if (st === 1) exportStatus = 1; else if (st === 2 || st === 0) exportStatus = 0; else if (st === 3 || st === -1) exportStatus = -1; 
-            
-            let supplied = finalKw * (supplyRate / 100);
-            let remain = finalKw - supplied;
-            
-            excelData.push({
-                "필지고유ID": index, "블럭명": blockName, "용도": blockType, "필지면적(m2)": finalArea,
-                "수요예측(kW)": finalKw, "공급률(%)": supplyRate, "공급완료부하(kW)": parseFloat(supplied.toFixed(1)), "미송전부하(kW)": parseFloat(remain.toFixed(1)), 
-                "송전상태(1:완료, 0:미송전, -1:해당없음)": exportStatus, "변전소명": data && data.ssName ? data.ssName : "", "배전선로": data && data.dlName ? data.dlName : "", "메모": data && data.memo ? data.memo : ""
-            });
             exportedBlocks.add(blockName);
+
+            var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
+            var blockData = getSafeData(blockName) || {};
+            var st = (blockData.status !== undefined) ? parseInt(blockData.status) : (isAutoNoLoad(blockType) ? 3 : 99);
+            var supplyRate = (blockData.supplyRate !== undefined) ? parseInt(blockData.supplyRate) : ((st === 1) ? 100 : 0);
+            var exportStatus = (st === 1) ? 1 : (st === 2 || st === 0) ? 0 : (st === 3 || st === -1) ? -1 : 99;
+
+            var lots = blockLotsIndex.get(blockName) || [];
+            if (lots.length > 0) {
+                lots.forEach(function(lot) {
+                    var merged = getLotData(blockName, lot.lotName);
+                    var lotArea = (merged.customArea > 0) ? merged.customArea : lot.area;
+                    var lotKw = (merged.loadKw !== null && merged.loadKw !== undefined)
+                        ? (parseFloat(merged.loadKw) || 0) : calcAutoKw(blockType, lotArea).kw;
+                    var hasOv = !!getSafeData(getLotKey(blockName, lot.lotName));
+                    var lotSt = (merged.status !== undefined) ? parseInt(merged.status) : st;
+                    var lotStCode = (lotSt === 1) ? 1 : (lotSt === 2 || lotSt === 0) ? 0 : (lotSt === 3 || lotSt === -1) ? -1 : 99;
+                    var lotRate = (merged.supplyRate !== undefined) ? parseInt(merged.supplyRate) : supplyRate;
+                    var supplied = lotKw * (lotRate / 100);
+                    excelData.push({
+                        "필지고유ID": index, "블럭명": blockName, "로트명": lot.lotName || "",
+                        "용도": blockType, "필지면적(m2)": lotArea,
+                        "수요예측(kW)": lotKw, "kW출처": hasOv ? "개별설정" : "블록기본",
+                        "공급률(%)": lotRate,
+                        "공급완료부하(kW)": parseFloat(supplied.toFixed(1)),
+                        "미송전부하(kW)": parseFloat((lotKw - supplied).toFixed(1)),
+                        "송전상태(1:완료, 0:미송전, -1:해당없음)": lotStCode,
+                        "변전소명": merged.ssName || "", "배전선로": merged.dlName || "", "메모": merged.memo || ""
+                    });
+                });
+            } else {
+                // lotName 없는 블록 - 블록 단위 행
+                let calcArea = feature.properties.area || feature.properties.면적 || feature.properties.SHAPE_Area;
+                if (!calcArea && feature.geometry && feature.geometry.coordinates) calcArea = calculateAreaM2(feature.geometry.coordinates);
+                calcArea = Math.round(calcArea || 0);
+                let finalArea = (blockData.customArea > 0) ? blockData.customArea : calcArea;
+                let finalKw = getBlockTotalKw(blockName);
+                let supplied = finalKw * (supplyRate / 100);
+                excelData.push({
+                    "필지고유ID": index, "블럭명": blockName, "로트명": "",
+                    "용도": blockType, "필지면적(m2)": finalArea,
+                    "수요예측(kW)": finalKw, "kW출처": (blockData.loadKw !== null && blockData.loadKw !== undefined) ? "직접입력" : "자동계산",
+                    "공급률(%)": supplyRate,
+                    "공급완료부하(kW)": parseFloat(supplied.toFixed(1)),
+                    "미송전부하(kW)": parseFloat((finalKw - supplied).toFixed(1)),
+                    "송전상태(1:완료, 0:미송전, -1:해당없음)": exportStatus,
+                    "변전소명": blockData.ssName || "", "배전선로": blockData.dlName || "", "메모": blockData.memo || ""
+                });
+            }
         });
         var wb = XLSX.utils.book_new(); var ws = XLSX.utils.json_to_sheet(excelData);
-        ws['!cols'] = [{wch:10}, {wch:15}, {wch:15}, {wch:12}, {wch:12}, {wch:10}, {wch:15}, {wch:15}, {wch:28}, {wch:15}, {wch:15}, {wch:25}];
+        ws['!cols'] = [{wch:10},{wch:15},{wch:10},{wch:15},{wch:12},{wch:12},{wch:10},{wch:10},{wch:15},{wch:15},{wch:28},{wch:15},{wch:15},{wch:25}];
         XLSX.utils.book_append_sheet(wb, ws, "현장확인데이터"); XLSX.writeFile(wb, currentProject + "_현장데이터.xlsx");
     }
 

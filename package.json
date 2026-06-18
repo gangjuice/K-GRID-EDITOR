@@ -7,9 +7,7 @@
   "license": "MIT",
   "scripts": {
     "start": ".\\node_modules\\.bin\\electron .",
-    "build": ".\\node_modules\\.bin\\electron-builder --win portable",
-    "build:extranet": ".\\node_modules\\.bin\\electron-builder --win portable --config electron-builder-extranet.json",
-    "build:intranet": ".\\node_modules\\.bin\\electron-builder --win portable --config electron-builder-intranet.json"
+    "build": ".\\node_modules\\.bin\\electron-builder --win portable"
   },
   "dependencies": {
     "express": "^5.2.1",
@@ -29,7 +27,6 @@
     "files": [
       "main.js",
       "index.html",
-      "intranet.html",
       "preload.js",
       "public/**/*",
       "data/**/*",
