@@ -9,15 +9,6 @@ let dataDir = null;
 server.use(express.static(__dirname));
 server.use(express.json());
 
-// 정적 파일 명시 라우트 (express.static fallback용)
-server.get('/app.js', (req, res) => {
-    res.type('application/javascript');
-    res.sendFile(path.join(__dirname, 'app.js'));
-});
-server.get('/index.html', (req, res) => {
-    res.type('text/html');
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
 
 // 데이터 자동 저장 API
 server.post("/api/save-data", (req, res) => {
