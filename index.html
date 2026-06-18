@@ -327,25 +327,17 @@
         </div>
         <!-- 블록 일괄 편집 섹션 -->
         <div style="padding:10px 14px; background:#e8f4fd; border-bottom:1px solid #b3d7f5; flex-shrink:0;">
-            <div style="font-size:11px; font-weight:700; color:#1a73e8; margin-bottom:6px;">▣ 블록 일괄 편집 (모든 로트에 기본값 적용)</div>
-            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                <label style="font-size:11px; color:#5f6368;">송전상태
-                    <select id="lotBatchStatus" style="margin-left:4px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 4px;">
-                        <option value="99">미입력</option><option value="1">송전완료</option>
-                        <option value="2">미송전</option><option value="3">무부하</option>
-                    </select>
+            <div style="font-size:11px; font-weight:700; color:#1a73e8; margin-bottom:6px;">▣ 블록 일괄 편집 — 수요전력을 모든 로트에 균등 배분</div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                <label style="font-size:11px; color:#5f6368;">블록 전체 수요전력(kW)
+                    <input id="lotBatchTotalKw" type="number" min="0" placeholder="예: 1000" style="margin-left:4px; width:80px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
                 </label>
                 <label style="font-size:11px; color:#5f6368;">공급률(%)
-                    <input id="lotBatchSupplyRate" type="number" min="0" max="100" style="margin-left:4px; width:50px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
+                    <input id="lotBatchSupplyRate" type="number" min="0" max="100" placeholder="0~100" style="margin-left:4px; width:55px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
                 </label>
-                <label style="font-size:11px; color:#5f6368;">변전소
-                    <input id="lotBatchSs" type="text" list="ssList" style="margin-left:4px; width:80px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
-                </label>
-                <label style="font-size:11px; color:#5f6368;">선로
-                    <input id="lotBatchDl" type="text" list="dlList" style="margin-left:4px; width:80px; font-size:11px; border:1px solid #ccc; border-radius:4px; padding:2px 5px;">
-                </label>
-                <button onclick="applyLotBatch()" style="font-size:11px; background:#1a73e8; color:#fff; border:none; border-radius:4px; padding:4px 10px; cursor:pointer; white-space:nowrap;">▶ 일괄 적용</button>
+                <button onclick="applyLotBatch()" style="font-size:11px; background:#1a73e8; color:#fff; border:none; border-radius:4px; padding:5px 12px; cursor:pointer; white-space:nowrap;">▶ 로트 균등 배분</button>
             </div>
+            <div id="lotBatchPreview" style="font-size:10px; color:#5f6368; margin-top:5px;"></div>
         </div>
         <!-- 로트 개별 편집 테이블 -->
         <div style="overflow:auto; flex:1; min-height:0;">
@@ -820,12 +812,10 @@
         var parcelId = feature.properties.blockName || feature.properties.zoneName || "알수없음";
         var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
         var lotName = feature.properties.lotName || "";
-        var lotKey = getLotKey(parcelId, lotName);
         var data = getLotData(parcelId, lotName); // 로트 오버라이드 → 블록 기본값
-        var blockData = getSafeData(parcelId) || {};
         var isNoLoad = isAutoNoLoad(blockType);
         var status = (data && data.status !== undefined) ? parseInt(data.status) : (isNoLoad ? 3 : 99);
-        let isSelected = selectedParcels.has(lotKey);
+        let isSelected = selectedParcels.has(parcelId);
         let baseOp = Math.max(0, 1.0 - (globalOpacity / 100));
         let strokeC = isSelected ? '#d93025' : '#333';
         let strokeW = isSelected ? 4 : 1.5;
@@ -890,10 +880,8 @@
                     var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
                     if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
                     if (isMultiSelectMode) {
-                        var lName = feature.properties.lotName || "";
-                        var lKey = getLotKey(parcelId, lName);
-                        if (selectedParcels.has(lKey)) selectedParcels.delete(lKey);
-                        else selectedParcels.add(lKey);
+                        if (selectedParcels.has(parcelId)) selectedParcels.delete(parcelId);
+                        else selectedParcels.add(parcelId);
                         mapRefreshStyles();
                         if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
                         return;
@@ -938,7 +926,7 @@
                         var iLot = item.feature.properties.lotName || "";
                         if (iLot === lotName) {
                             var base = getParcelStyle(item.feature);
-                            item.layer.setStyle({ weight: 2, color: base.color, fillColor: lightenColor(base.fillColor || '#cccccc', 0.5), fillOpacity: Math.max(base.fillOpacity || 0.5, 0.8) });
+                            item.layer.setStyle({ fillColor: lightenColor(base.fillColor || '#cccccc', 0.5), fillOpacity: Math.max(base.fillOpacity || 0.5, 0.82) });
                         } else {
                             item.layer.setStyle(getParcelStyle(item.feature));
                         }
@@ -959,8 +947,7 @@
                     var bLots = blockLotsIndex.get(parcelId) || [];
                     var hasOv = !!getSafeData(getLotKey(parcelId, lotName));
                     var ovBadge = hasOv ? `<span style="font-size:10px;background:#ff6d00;color:#fff;border-radius:3px;padding:1px 5px;margin-left:4px;">개별</span>` : '';
-                    var lotTitle = (bLots.length > 0 && lotName)
-                        ? `${parcelId} <span style="font-size:12px;opacity:0.85;">/ ${lotName}</span>` : parcelId;
+                    var lotTitle = lotName ? `${parcelId}-${lotName}` : parcelId;
                     var blockSum = bLots.length > 1
                         ? `<div class="briefing-row" style="border-top:1px solid rgba(255,255,255,0.2);margin-top:4px;padding-top:4px;"><span class="briefing-label">블록 합계:</span><span class="briefing-value">${blockTotalKw.toLocaleString()} kW (${bLots.length}로트)</span></div>` : '';
                     document.getElementById('briefingContent').innerHTML = `
@@ -1337,14 +1324,13 @@
         document.getElementById('lotPanelTitle').innerText = blockName + '  (' + lotPanelBlockType + ')';
         document.getElementById('lotPanelSubtitle').innerText = lots.length + '개 로트 · 블록 총 예측 ' + totalKw.toLocaleString() + ' kW';
 
-        // 블록 일괄 편집 섹션 렌더
+        // 블록 일괄 편집 섹션 초기화
         var blockData = getSafeData(blockName) || {};
-        var bSt = blockData.status !== undefined ? parseInt(blockData.status) : 99;
         var bSupplyRate = blockData.supplyRate !== undefined ? parseInt(blockData.supplyRate) : 0;
-        document.getElementById('lotBatchStatus').value = bSt;
-        document.getElementById('lotBatchSupplyRate').value = bSupplyRate;
-        document.getElementById('lotBatchSs').value = blockData.ssName || '';
-        document.getElementById('lotBatchDl').value = blockData.dlName || '';
+        document.getElementById('lotBatchTotalKw').value = '';
+        document.getElementById('lotBatchSupplyRate').value = bSupplyRate || '';
+        var preview = document.getElementById('lotBatchPreview');
+        if (preview) preview.innerText = '로트 수: ' + lots.length + '개 · 현재 블록 공급률: ' + bSupplyRate + '%';
 
         var tbody = document.getElementById('lotPanelBody');
         if (lots.length === 0) {
@@ -1404,24 +1390,28 @@
     function applyLotBatch() {
         if (!lotPanelBlockName) return;
         var lots = blockLotsIndex.get(lotPanelBlockName) || [];
-        var bSt = parseInt(document.getElementById('lotBatchStatus').value);
-        var bRate = parseInt(document.getElementById('lotBatchSupplyRate').value) || 0;
-        var bSs = document.getElementById('lotBatchSs').value.trim();
-        var bDl = document.getElementById('lotBatchDl').value.trim();
-        // 블록 키에 기본값 저장 (공급률 포함)
+        var totalKw = parseFloat(document.getElementById('lotBatchTotalKw').value);
+        var supplyRate = parseInt(document.getElementById('lotBatchSupplyRate').value);
+        if (isNaN(totalKw) || totalKw <= 0) { alert('블록 전체 수요전력(kW)을 입력하세요.'); return; }
+        if (isNaN(supplyRate)) supplyRate = 0;
+        // 공급률은 블록 키에만 저장
         var blockData = getSafeData(lotPanelBlockName) || {};
-        blockData.status = bSt; blockData.supplyRate = bRate;
-        if (bSs !== '') blockData.ssName = bSs;
-        if (bDl !== '') blockData.dlName = bDl;
+        blockData.supplyRate = supplyRate;
         setSafeData(lotPanelBlockName, blockData);
-        // 로트별 개별 오버라이드 중 status/ss/dl 초기화 (블록 기본값으로 통일)
+        // 각 로트에 totalKw / numLots 균등 배분
+        var numLots = lots.length || 1;
+        var perLotKw = Math.round((totalKw / numLots) * 10) / 10;
         lots.forEach(function(lot) {
             var key = getLotKey(lotPanelBlockName, lot.lotName);
-            var ex = getSafeData(key);
-            if (ex) { delete ex.status; delete ex.ssName; delete ex.dlName; setSafeData(key, ex); }
+            var ex = getSafeData(key) || {};
+            ex.loadKw = perLotKw;
+            ex.manualKw = true;
+            setSafeData(key, ex);
         });
         mapRefreshStyles(); renderUnconfirmedList();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
+        var preview = document.getElementById('lotBatchPreview');
+        if (preview) preview.innerText = '✓ 로트당 ' + perLotKw.toLocaleString() + ' kW 배분 완료 (공급률 ' + supplyRate + '%)';
         openLotPanel(lotPanelBlockName, lotPanelBlockType);
     }
 
@@ -1500,12 +1490,11 @@
         var parcelId = feature.getProperty('blockName') || feature.getProperty('zoneName') || "알수없음";
         var blockType = feature.getProperty('blockType') || feature.getProperty('용도') || feature.getProperty('ZONE_NM') || "미상";
         var lotName = feature.getProperty('lotName') || "";
-        var lotKey = getLotKey(parcelId, lotName);
         var data = getLotData(parcelId, lotName);
         var isNoLoad = isAutoNoLoad(blockType);
         var status = (data && data.status !== undefined) ? parseInt(data.status) : (isNoLoad ? 3 : 99);
 
-        let isSelected = selectedParcels.has(lotKey);
+        let isSelected = selectedParcels.has(parcelId);
         let baseOp = Math.max(0, 1.0 - (globalOpacity / 100));
         let strokeC = isSelected ? '#d93025' : '#333';
         let strokeW = isSelected ? 4 : 1.5;
@@ -1583,9 +1572,7 @@
         var remain = lotKw - supplied || 0;
         var hasLotOverride = !!getSafeData(getLotKey(blockName, lotName));
 
-        var lotTitle = (bLots.length > 0 && lotName)
-            ? `${blockName} <span style="font-size:12px; opacity:0.85;">/ ${lotName}</span>`
-            : blockName;
+        var lotTitle = lotName ? `${blockName}-${lotName}` : blockName;
         var blockSummary = bLots.length > 1
             ? `<div class="briefing-row" style="border-top:1px solid rgba(255,255,255,0.2); margin-top:4px; padding-top:4px;"><span class="briefing-label">블록 합계:</span><span class="briefing-value">${blockTotalKw.toLocaleString()} kW (${bLots.length}로트)</span></div>` : '';
         var overrideBadge = hasLotOverride ? `<span style="font-size:10px; background:#ff6d00; color:#fff; border-radius:3px; padding:1px 5px; margin-left:4px;">개별설정</span>` : '';
@@ -1615,11 +1602,11 @@
             if (fLot === lotName) {
                 map.data.overrideStyle(f, {
                     fillColor: lightenColor(ns.fillColor || '#cccccc', 0.5),
-                    fillOpacity: Math.max(ns.fillOpacity || 0.5, 0.85),
-                    strokeWeight: 3, strokeColor: ns.strokeColor
+                    fillOpacity: Math.max(ns.fillOpacity || 0.5, 0.82),
+                    strokeWeight: ns.strokeWeight, strokeColor: ns.strokeColor
                 });
             } else {
-                map.data.overrideStyle(f, { strokeWeight: 3, strokeColor: '#1a237e', strokeOpacity: 0.85 });
+                map.data.overrideStyle(f, { strokeWeight: 2, strokeColor: '#1a237e', strokeOpacity: 0.7 });
             }
         });
         // Leaflet은 pane 레이어로 블록 외곽선 별도 처리
@@ -1645,10 +1632,8 @@
         if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
 
         if (isMultiSelectMode) {
-            var lName = e.feature.getProperty('lotName') || "";
-            var lKey = getLotKey(parcelId, lName);
-            if (selectedParcels.has(lKey)) selectedParcels.delete(lKey);
-            else selectedParcels.add(lKey);
+            if (selectedParcels.has(parcelId)) selectedParcels.delete(parcelId);
+            else selectedParcels.add(parcelId);
             mapRefreshStyles();
             if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
             return;
@@ -1984,15 +1969,7 @@
     }
 
     function toggleParcelSel(bName, isChecked) {
-        var lots = blockLotsIndex.get(bName) || [];
-        if (lots.length > 0) {
-            lots.forEach(function(lot) {
-                var lKey = getLotKey(bName, lot.lotName);
-                if (isChecked) selectedParcels.add(lKey); else selectedParcels.delete(lKey);
-            });
-        } else {
-            if (isChecked) selectedParcels.add(bName); else selectedParcels.delete(bName);
-        }
+        if (isChecked) selectedParcels.add(bName); else selectedParcels.delete(bName);
         mapRefreshStyles(); renderDashboard();
     }
 
@@ -2136,9 +2113,7 @@
         filtered.forEach(d => {
             sumArea += d.area; sumKw += d.kw; sumSupplied += d.supplied; sumRemain += d.remain;
             let lots = blockLotsIndex.get(d.name) || [];
-            let isSel = lots.length > 0
-                ? lots.some(function(lot){ return selectedParcels.has(getLotKey(d.name, lot.lotName)); })
-                : selectedParcels.has(d.name);
+            let isSel = selectedParcels.has(d.name);
             let lotCount = lots.length;
             let lotBtn = lotCount > 0 ? `<button onclick="event.stopPropagation(); toggleLotDrilldown('${d.name}')" style="margin-left:6px; font-size:10px; background:#e8f0fe; border:none; border-radius:3px; padding:1px 5px; color:#1a73e8; cursor:pointer;">▶ ${lotCount}로트</button>` : '';
             let safeN = d.name.replace(/'/g, "\\'");
@@ -2719,12 +2694,12 @@
     function saveBatchData() {
         let bSs = document.getElementById('batchSs').value.trim(); let bDl = document.getElementById('batchDl').value.trim(); let bMemo = document.getElementById('batchMemo').value.trim();
         if(bSs === "" && bDl === "" && bMemo === "") { alert("입력된 내용이 없어 기존 데이터가 유지됩니다."); closeModals(); return; }
-        selectedParcels.forEach(lotKey => {
-            let data = getSafeData(lotKey) || {};
+        selectedParcels.forEach(blockName => {
+            let data = getSafeData(blockName) || {};
             if (bSs !== "") data.ssName = bSs;
             if (bDl !== "") data.dlName = bDl;
             if (bMemo !== "") data.memo = bMemo;
-            setSafeData(lotKey, data);
+            setSafeData(blockName, data);
         });
         selectedParcels.clear(); 
         let btn = document.getElementById('btn-multi-select');
