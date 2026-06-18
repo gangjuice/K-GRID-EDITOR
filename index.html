@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>K-GRID EDITOR</title>
-    <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=cr5pcd8cee"></script>
+    <link rel="stylesheet" href="/public/lib/leaflet/leaflet.css" />
+    <script src="/public/lib/leaflet/leaflet.js"></script>
     <script src="public/lib/xlsx/xlsx.full.min.js"></script>
     <style>
         /* ★ Flexbox 전면 도입으로 여백 붕괴 원천 차단 */
@@ -227,10 +228,17 @@
     <div class="project-indicator">
         현재 작업 도면: <span id="currentProjectName">파일 열기 대기중...</span>
     </div>
+    <span id="networkModeIndicator" style="font-size:11px; color:#1a73e8; font-weight:bold; margin-left:10px; padding:3px 8px; background:#e8f0fe; border-radius:10px;">🌐 연결 확인 중...</span>
 </div>
 
 <div id="main-content">
-    <div id="map"></div>
+    <div id="map">
+        <div id="mapLoadingOverlay" style="position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.96);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+            <div style="font-size:36px;margin-bottom:16px;">🔍</div>
+            <div style="font-size:16px;font-weight:bold;color:#1a73e8;">네트워크 환경 감지 중...</div>
+            <div style="font-size:13px;color:#5f6368;margin-top:8px;">잠시만 기다려 주세요 (최대 4초)</div>
+        </div>
+    </div>
 
     <div id="dashboardOverlay">
         <div class="dash-header">
@@ -528,7 +536,9 @@
     var colorMapDict = {}; 
     var isMultiSelectMode = false;
     var selectedParcels = new Set();
-    var highlightedLegend = null; 
+    var highlightedLegend = null;
+    var useLeaflet = false;
+    var leafletGeoJsonLayer = null;
 
     const rateCategories = {
         "주거시설": { "단독주택": 0.05, "아파트": 0.08, "도시형생활주택용지": 0.06, "주상복합": 0.1 },
@@ -605,7 +615,7 @@
                             }
                         }
                         // GeoJSON 렌더링
-                        map.data.addGeoJson(globalGeoJson);
+                        mapAddGeoJson(globalGeoJson);
                         updateDatalists();
                         renderUnconfirmedList();
                         if(viewMode === 'ss' || viewMode === 'dl') buildLegend(viewMode);
@@ -617,29 +627,240 @@
         }
     }
 
-    var map = new naver.maps.Map('map', { center: new naver.maps.LatLng(37.056, 127.048), zoom: 14, mapTypeId: naver.maps.MapTypeId.NORMAL });
-    var BlankMapType = new naver.maps.ImageMapType({
-        name: 'Blank', minZoom: 1, maxZoom: 22, tileSize: new naver.maps.Size(256, 256),
-        projection: naver.maps.EPSG3857,
-        provider: [{ title: "Blank", link: "" }],
-        getTileUrl: function() { return "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"; }
-    });
-    map.mapTypes.set('blank', BlankMapType);
+    var map = null;
 
-    // 앱 시작 시 글로벌 파일에서 설정 로드 (localStorage 기본값 위에 덮어씀)
-    fetch('/api/load-rate-settings')
-        .then(r => r.json())
-        .then(function(fileData) {
-            if (!fileData || !fileData.current || Object.keys(fileData.current).length === 0) return;
-            for (let key in fileData.current) {
-                localStorage.setItem('rate_' + key, fileData.current[key]);
-                let input = document.querySelector('.conf-rate[data-key="' + key + '"]');
-                if (input) input.value = fileData.current[key];
+    function initMapAndStart() {
+        if (useLeaflet) {
+            map = L.map('map', { center: [37.056, 127.048], zoom: 14 });
+            var ni = document.getElementById('networkModeIndicator');
+            if (ni) { ni.innerText = '📴 오프라인(사내망)'; ni.style.color = '#d93025'; ni.style.background = '#fce8e6'; }
+            // Leaflet 이벤트는 renderLeafletLayer()에서 처리
+        } else {
+            map = new naver.maps.Map('map', { center: new naver.maps.LatLng(37.056, 127.048), zoom: 14, mapTypeId: naver.maps.MapTypeId.NORMAL });
+            var BlankMapType = new naver.maps.ImageMapType({
+                name: 'Blank', minZoom: 1, maxZoom: 22, tileSize: new naver.maps.Size(256, 256),
+                projection: naver.maps.EPSG3857,
+                provider: [{ title: "Blank", link: "" }],
+                getTileUrl: function() { return "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"; }
+            });
+            map.mapTypes.set('blank', BlankMapType);
+
+            map.data.setStyle(naverMapStyleFn);
+            map.data.addListener('mouseover', naverMouseoverHandler);
+            map.data.addListener('mouseout', naverMouseoutHandler);
+            map.data.addListener('click', naverClickHandler);
+            map.data.addListener('rightclick', naverRightclickHandler);
+
+            var ni = document.getElementById('networkModeIndicator');
+            if (ni) { ni.innerText = '🌐 온라인(사외망)'; ni.style.color = '#1a73e8'; ni.style.background = '#e8f0fe'; }
+        }
+
+        // 앱 시작 시 글로벌 파일에서 설정 로드 (localStorage 기본값 위에 덮어씀)
+        fetch('/api/load-rate-settings')
+            .then(r => r.json())
+            .then(function(fileData) {
+                if (!fileData || !fileData.current || Object.keys(fileData.current).length === 0) return;
+                for (let key in fileData.current) {
+                    localStorage.setItem('rate_' + key, fileData.current[key]);
+                    let input = document.querySelector('.conf-rate[data-key="' + key + '"]');
+                    if (input) input.value = fileData.current[key];
+                }
+                loadSettings();
+                mapRefreshStyles();
+            })
+            .catch(function() {});
+
+        restoreGeoJsonFromStorage();
+    }
+
+    function detectNetworkAndInitMap() {
+        var resolved = false;
+        function finish(leaflet) {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timer);
+            useLeaflet = leaflet;
+            document.getElementById('mapLoadingOverlay').style.display = 'none';
+            initMapAndStart();
+        }
+        var timer = setTimeout(function() { finish(true); }, 4000);
+        var s = document.createElement('script');
+        s.onload = function() { finish(false); };
+        s.onerror = function() { finish(true); };
+        s.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=cr5pcd8cee';
+        document.head.appendChild(s);
+    }
+
+    detectNetworkAndInitMap();
+
+    // ★ 지도 추상화 함수 (Naver/Leaflet 공통 인터페이스)
+    function mapRefreshStyles() {
+        if (useLeaflet) {
+            if (leafletGeoJsonLayer) leafletGeoJsonLayer.setStyle(getParcelStyle);
+        } else {
+            if (map && map.data) map.data.setStyle(map.data.getStyle());
+        }
+    }
+
+    function mapAddGeoJson(geoJson) {
+        if (useLeaflet) {
+            renderLeafletLayer();
+        } else {
+            map.data.addGeoJson(geoJson);
+        }
+    }
+
+    function mapClearFeatures() {
+        if (useLeaflet) {
+            if (leafletGeoJsonLayer) { map.removeLayer(leafletGeoJsonLayer); leafletGeoJsonLayer = null; }
+        } else {
+            var toRemove = [];
+            if (map && map.data && map.data.forEach) map.data.forEach(function(f) { toRemove.push(f); });
+            toRemove.forEach(function(f) { map.data.removeFeature(f); });
+        }
+    }
+
+    function mapFitBounds(minLat, maxLat, minLng, maxLng) {
+        if (useLeaflet) {
+            map.fitBounds([[minLat, minLng], [maxLat, maxLng]]);
+        } else {
+            var sw = new naver.maps.LatLng(minLat, minLng);
+            var ne = new naver.maps.LatLng(maxLat, maxLng);
+            map.fitBounds(new naver.maps.LatLngBounds(sw, ne));
+        }
+    }
+
+    // ★ Leaflet 필지 스타일 함수
+    function getParcelStyle(feature) {
+        if (!isPolygonVisible) return { color: '#000', weight: 0, fillOpacity: 0, opacity: 0 };
+        var parcelId = feature.properties.blockName || feature.properties.zoneName || "알수없음";
+        var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
+        var data = getSafeData(parcelId);
+        var isNoLoad = isAutoNoLoad(blockType);
+        var status = (data && data.status !== undefined) ? parseInt(data.status) : (isNoLoad ? 3 : 99);
+        let isSelected = selectedParcels.has(parcelId);
+        let baseOp = Math.max(0, 1.0 - (globalOpacity / 100));
+        let strokeC = isSelected ? '#d93025' : '#333';
+        let strokeW = isSelected ? 4 : 1.5;
+        let fillColor = '#f1c40f', fillOp = baseOp;
+        if (viewMode === 'gradient') {
+            if (isNoLoad || status === 3) { fillColor = '#ffffff'; fillOp = 0.05; }
+            else {
+                var rate = (data && data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((status === 1) ? 100 : 0);
+                fillColor = getGradientColor(rate);
+                fillOp = Math.min(baseOp + 0.2, 1.0);
+                if (highlightedLegend !== null) {
+                    let parts = highlightedLegend.replace('%', '').split('-');
+                    let min = parseInt(parts[0]), max = parseInt(parts[1]);
+                    if (rate < min || rate >= max) { fillOp = 0.05; if (!isSelected) strokeC = 'rgba(0,0,0,0.1)'; }
+                    else { fillOp = Math.min(baseOp + 0.4, 1.0); }
+                }
             }
-            loadSettings();
-            map.data.setStyle(map.data.getStyle());
-        })
-        .catch(function() {});
+        } else if (viewMode === 'ss' || viewMode === 'dl') {
+            let targetName = viewMode === 'ss' ? (data ? (data.ssName || "") : "") : (data ? (data.dlName || "") : "");
+            let color = getRandomColorFor(targetName);
+            fillColor = color;
+            fillOp = (color === "#e0e0e0") ? Math.max(baseOp - 0.2, 0.1) : baseOp;
+            if (highlightedLegend !== null) {
+                if (targetName !== highlightedLegend) { fillOp = 0.05; if (!isSelected) strokeC = 'rgba(0,0,0,0.1)'; }
+                else { fillOp = Math.min(baseOp + 0.4, 1.0); }
+            }
+        } else {
+            if (status === 1) { fillColor = 'royalblue'; }
+            else if (status === 2 || status === 0) { fillColor = 'tomato'; }
+            else if (status === 3 || status === -1) { fillColor = '#ffffff'; fillOp = Math.max(baseOp - 0.2, 0.05); strokeC = isSelected ? '#d93025' : '#999'; }
+        }
+        return { color: strokeC, weight: strokeW, fillColor: fillColor, fillOpacity: fillOp };
+    }
+
+    // ★ Leaflet GeoJSON 레이어 렌더링
+    function renderLeafletLayer() {
+        if (!globalGeoJson) return;
+        if (leafletGeoJsonLayer) { map.removeLayer(leafletGeoJsonLayer); leafletGeoJsonLayer = null; }
+        leafletGeoJsonLayer = L.geoJSON(globalGeoJson, {
+            style: getParcelStyle,
+            onEachFeature: function(feature, layer) {
+                var parcelId = feature.properties.blockName || feature.properties.zoneName || "알수없음";
+                layer.on('click', function(e) {
+                    var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
+                    if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
+                    if (isMultiSelectMode) {
+                        if (selectedParcels.has(parcelId)) selectedParcels.delete(parcelId);
+                        else selectedParcels.add(parcelId);
+                        mapRefreshStyles();
+                        if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
+                        return;
+                    }
+                    var area = feature.properties.area || feature.properties.면적;
+                    if (!area && feature.geometry && feature.geometry.coordinates) area = calculateAreaM2(feature.geometry.coordinates);
+                    var data = getSafeData(parcelId) || { customArea: null, loadKw: null, ssName: "", dlName: "", supplyRate: 0, status: 99, memo: "" };
+                    openEditModal(parcelId, blockType, Math.round(area || 0), data);
+                });
+                layer.on('contextmenu', function(e) {
+                    L.DomEvent.preventDefault(e);
+                    var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
+                    if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
+                    contextMenuParcelId = parcelId;
+                    contextMenuParcelType = blockType;
+                    contextMenuFeature = feature;
+                    var menu = document.getElementById('statusContextMenu');
+                    var x = e.originalEvent.clientX, y = e.originalEvent.clientY;
+                    if (x + 170 > window.innerWidth) x = window.innerWidth - 175;
+                    if (y + 180 > window.innerHeight) y = window.innerHeight - 185;
+                    menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
+                });
+                layer.on('mouseover', function(e) {
+                    var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
+                    if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
+                    var data = getSafeData(parcelId) || {};
+                    var st = (data.status !== undefined) ? parseInt(data.status) : (isAutoNoLoad(blockType) ? 3 : 99);
+                    var statusText = (st === 1) ? "송전완료" : (st === 2 || st === 0) ? "미송전" : (st === 3) ? "무부하" : "미입력";
+                    var calcArea = 0;
+                    if (globalGeoJson && globalGeoJson.features) {
+                        for (var gf of globalGeoJson.features) {
+                            var gfName = gf.properties && (gf.properties.blockName || gf.properties.zoneName);
+                            if (gfName === parcelId) {
+                                var propArea = gf.properties.area || gf.properties.면적 || gf.properties.SHAPE_Area;
+                                calcArea = propArea ? parseFloat(propArea) : (gf.geometry && gf.geometry.coordinates ? calculateAreaM2(gf.geometry.coordinates) : 0);
+                                break;
+                            }
+                        }
+                    }
+                    calcArea = Math.round(calcArea || 0);
+                    var area = (data.customArea > 0) ? data.customArea : calcArea;
+                    var loadKw = (data.loadKw !== undefined && data.loadKw !== null) ? parseFloat(data.loadKw) : null;
+                    var calcVal = 0, matchedKey = "";
+                    for (var key in loadRateDict) {
+                        var cleanType = blockType.replace(/용지|부지|시설/g, "");
+                        if (blockType.includes(key) || key.includes(cleanType)) { calcVal = Math.round(area * loadRateDict[key]); matchedKey = key; break; }
+                    }
+                    var kw = (loadKw !== null && loadKw > 0) ? loadKw : (matchedKey !== "" ? calcVal : 0);
+                    var supplyRate = (data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((st === 1) ? 100 : 0);
+                    var supplied = kw * (supplyRate / 100) || 0;
+                    var remain = kw - supplied || 0;
+                    document.getElementById('briefingContent').innerHTML = `
+                        <div class="briefing-title">${parcelId}</div>
+                        <div class="briefing-row"><span class="briefing-label">용도:</span><span class="briefing-value">${blockType}</span></div>
+                        <div class="briefing-row"><span class="briefing-label">필지 면적:</span><span class="briefing-value">${area.toFixed(0)}㎡</span></div>
+                        <div class="briefing-row"><span class="briefing-label">수요부하:</span><span class="briefing-value">${kw.toFixed(1)}kW</span></div>
+                        <div class="briefing-row"><span class="briefing-label">공급률:</span><span class="briefing-value">${supplyRate}%</span></div>
+                        <div class="briefing-row"><span class="briefing-label">공급완료:</span><span class="briefing-value">${supplied.toFixed(1)}kW</span></div>
+                        <div class="briefing-row"><span class="briefing-label">미송전:</span><span class="briefing-value">${remain.toFixed(1)}kW</span></div>
+                        <div class="briefing-row"><span class="briefing-label">상태:</span><span class="briefing-value">${statusText}</span></div>
+                        <div class="briefing-row"><span class="briefing-label">변전소:</span><span class="briefing-value">${data.ssName || "미정"}</span></div>
+                        <div class="briefing-row"><span class="briefing-label">선로:</span><span class="briefing-value">${data.dlName || "미정"}</span></div>
+                        ${data.memo ? `<div class="briefing-row"><span class="briefing-label">메모:</span><span class="briefing-value">${data.memo}</span></div>` : ''}
+                    `;
+                    document.getElementById('briefingOverlay').style.display = 'block';
+                    layer.setStyle({ weight: 3, color: '#000000' });
+                });
+                layer.on('mouseout', function() {
+                    document.getElementById('briefingOverlay').style.display = 'none';
+                    layer.setStyle(getParcelStyle(feature));
+                });
+            }
+        }).addTo(map);
+    }
 
     function getSafeData(parcelId) {
         var raw = localStorage.getItem(currentProject + '_parcel_' + parcelId);
@@ -786,7 +1007,7 @@
 
     // 레이블 마커 전체 제거
     function clearAllMarkers() {
-        for (let i = 0; i < labelMarkers.length; i++) labelMarkers[i].setMap(null);
+        if (!useLeaflet) for (let i = 0; i < labelMarkers.length; i++) labelMarkers[i].setMap(null);
         labelMarkers = [];
     }
 
@@ -829,7 +1050,7 @@
         } else {
             btn.classList.remove('active');
             icon.innerText = "👆"; text.innerText = "마우스 다중 선택: OFF";
-            selectedParcels.clear(); map.data.setStyle(map.data.getStyle()); 
+            selectedParcels.clear(); mapRefreshStyles(); 
             if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
         }
     }
@@ -840,13 +1061,13 @@
             '<span class="dropdown-icon">👁️</span>토지이용계획 도면 끄기' : 
             '<span class="dropdown-icon">👁️</span>토지이용계획 도면 켜기';
         
-        map.data.setStyle(map.data.getStyle()); 
-        for(let i=0; i<labelMarkers.length; i++) {
-            labelMarkers[i].setVisible(isPolygonVisible);
+        mapRefreshStyles();
+        if (!useLeaflet) {
+            for(let i=0; i<labelMarkers.length; i++) labelMarkers[i].setVisible(isPolygonVisible);
         }
     }
 
-    map.data.setStyle(function(feature) {
+    function naverMapStyleFn(feature) {
         if (!isPolygonVisible) return { fillColor: '#000', fillOpacity: 0, strokeColor: '#000', strokeOpacity: 0, strokeWeight: 0 };
 
         var parcelId = feature.getProperty('blockName') || feature.getProperty('zoneName') || "알수없음";
@@ -907,12 +1128,12 @@
             else if (status === 3 || status === -1) { fColor = '#ffffff'; targetOp = Math.max(baseOp - 0.2, 0.05); strokeC = isSelected ? '#d93025' : '#999'; }
             return { fillColor: fColor, fillOpacity: targetOp, strokeColor: strokeC, strokeWeight: strokeW };
         }
-    });
+    }
 
     // 모드 전환 후 도면 복구 (모드 전환 시에만 호출)
     // 프로그램 시작 시에는 호출하지 않음 (빈 화면 유지)
 
-    map.data.addListener('mouseover', function(e) {
+    function naverMouseoverHandler(e) {
         if(!isPolygonVisible) return;
         var blockType = e.feature.getProperty('blockType') || e.feature.getProperty('용도') || e.feature.getProperty('ZONE_NM') || "미상";
         if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
@@ -980,9 +1201,9 @@
                 });
             }
         });
-    });
+    }
 
-    map.data.addListener('mouseout', function(e) {
+    function naverMouseoutHandler(e) {
         var targetName = e.feature.getProperty('blockName') || e.feature.getProperty('zoneName');
         if (!targetName) return;
 
@@ -992,22 +1213,22 @@
         map.data.getAllFeature().forEach(function(f) {
             if ((f.getProperty('blockName') || f.getProperty('zoneName')) === targetName) map.data.revertStyle(f);
         });
-    });
+    }
 
-    map.data.addListener('click', function(e) {
+    function naverClickHandler(e) {
         var parcelId = e.feature.getProperty('blockName') || e.feature.getProperty('zoneName') || "알수없음";
         var blockType = e.feature.getProperty('blockType') || e.feature.getProperty('용도') || e.feature.getProperty('ZONE_NM') || "미상";
-        
-        if (isAutoNoLoad(blockType) && isNoLoadLocked) return; 
-        
+
+        if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
+
         if (isMultiSelectMode) {
             if (selectedParcels.has(parcelId)) selectedParcels.delete(parcelId);
             else selectedParcels.add(parcelId);
-            map.data.setStyle(map.data.getStyle());
+            mapRefreshStyles();
             if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
             return;
         }
-        
+
         let area = e.feature.getProperty('area') || e.feature.getProperty('면적') || e.feature.getProperty('SHAPE_Area');
         if (!area) {
             let coords = null;
@@ -1020,12 +1241,12 @@
             }
             area = coords ? calculateAreaM2(coords) : 0;
         }
-        
+
         var data = getSafeData(parcelId) || { customArea: null, loadKw: null, ssName: "", dlName: "", supplyRate: 0, status: 99, memo: "" };
         openEditModal(parcelId, blockType, Math.round(area), data);
-    });
+    }
 
-    map.data.addListener('rightclick', function(e) {
+    function naverRightclickHandler(e) {
         var parcelId = e.feature.getProperty('blockName') || e.feature.getProperty('zoneName') || "알수없음";
         var blockType = e.feature.getProperty('blockType') || e.feature.getProperty('용도') || e.feature.getProperty('ZONE_NM') || "미상";
         if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
@@ -1040,7 +1261,7 @@
         menu.style.left = x + 'px';
         menu.style.top = y + 'px';
         menu.style.display = 'block';
-    });
+    }
 
     function setParcelStatus(newStatus) {
         document.getElementById('statusContextMenu').style.display = 'none';
@@ -1073,7 +1294,7 @@
             if (!data.manualKw) { data.loadKw = 0; }
         }
         setSafeData(contextMenuParcelId, data);
-        map.data.setStyle(map.data.getStyle());
+        mapRefreshStyles();
         renderUnconfirmedList();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
         contextMenuParcelId = null; contextMenuFeature = null;
@@ -1081,11 +1302,11 @@
 
     function toggleHighlightLegend(name) {
         if (highlightedLegend === name) highlightedLegend = null; else highlightedLegend = name;
-        map.data.setStyle(map.data.getStyle()); buildLegend(viewMode); 
+        mapRefreshStyles(); buildLegend(viewMode); 
     }
 
     function changeViewMode(mode) {
-        viewMode = mode; highlightedLegend = null; map.data.setStyle(map.data.getStyle());
+        viewMode = mode; highlightedLegend = null; mapRefreshStyles();
         let legendPanel = document.getElementById('legendPanel');
         if (mode === 'ss' || mode === 'dl' || mode === 'gradient') {
             if (mode === 'ss') document.getElementById('legendTitle').innerText = "🏭 변전소별 범례";
@@ -1145,9 +1366,10 @@
 
         document.getElementById('legendList').innerHTML = listHtml;
     }
-    function closeLegendPanel() { document.getElementById('legendPanel').style.display = 'none'; highlightedLegend = null; map.data.setStyle(map.data.getStyle()); }
+    function closeLegendPanel() { document.getElementById('legendPanel').style.display = 'none'; highlightedLegend = null; mapRefreshStyles(); }
 
     function toggleMapBg() {
+        if (useLeaflet) return;
         isBgOn = !isBgOn;
         if (isBgOn) {
             map.setMapTypeId(isNormalMap ? naver.maps.MapTypeId.NORMAL : naver.maps.MapTypeId.HYBRID);
@@ -1161,6 +1383,7 @@
     }
 
     function toggleMapType() {
+        if (useLeaflet) return;
         isNormalMap = !isNormalMap;
         map.setMapTypeId(isNormalMap ? naver.maps.MapTypeId.NORMAL : naver.maps.MapTypeId.HYBRID);
         document.getElementById('menu-map-type').innerHTML = isNormalMap ? "<span class='dropdown-icon'>🌍</span>위성 지도로 전환" : "<span class='dropdown-icon'>🌍</span>일반 지도로 전환";
@@ -1169,7 +1392,7 @@
     function toggleGradient() {
         isGradientMode = !isGradientMode;
         document.getElementById('menu-gradient').innerHTML = isGradientMode ? "<span class='dropdown-icon'>🎨</span>기본 색상으로 보기" : "<span class='dropdown-icon'>🎨</span>공급률 그라데이션 켜기";
-        map.data.setStyle(map.data.getStyle());
+        mapRefreshStyles();
     }
 
     function getVisualCentroid(coords) {
@@ -1227,6 +1450,7 @@
     function toggleLabels() {
         showLabels = !showLabels;
         document.getElementById('menu-labels').innerHTML = showLabels ? "<span class='dropdown-icon'>🔠</span>블럭명 오버레이 끄기" : "<span class='dropdown-icon'>🔠</span>블럭명 오버레이 켜기";
+        if (useLeaflet) return; // Leaflet 모드에서는 레이블 별도 구현 불필요
         for(let i=0; i<labelMarkers.length; i++) labelMarkers[i].setMap(null);
         labelMarkers = [];
         if (showLabels && globalGeoJson && globalGeoJson.features) {
@@ -1235,7 +1459,6 @@
                 if(!f || !f.properties || !f.geometry) continue;
                 let blockName = f.properties.blockName || f.properties.zoneName;
                 if (!blockName) continue;
-                
                 let centroid = getVisualCentroid(f.geometry.coordinates);
                 if (centroid) {
                     let marker = new naver.maps.Marker({
@@ -1244,7 +1467,7 @@
                             content: `<div style="color:#2c3e50; font-size:12px; font-weight:900; text-shadow: -1.5px -1.5px 0 #fff, 1.5px -1.5px 0 #fff, -1.5px 1.5px 0 #fff, 1.5px 1.5px 0 #fff; pointer-events:none; white-space:nowrap; transform: translate(-50%, -50%);">${blockName}</div>`,
                             anchor: new naver.maps.Point(0, 0)
                         },
-                        visible: isPolygonVisible 
+                        visible: isPolygonVisible
                     });
                     labelMarkers.push(marker);
                 }
@@ -1306,12 +1529,12 @@
             if(el.checked) selectedParcels.add(chk.value);
             else selectedParcels.delete(chk.value);
         });
-        map.data.setStyle(map.data.getStyle()); renderDashboard();
+        mapRefreshStyles(); renderDashboard();
     }
 
     function toggleParcelSel(bName, isChecked) {
         if(isChecked) selectedParcels.add(bName); else selectedParcels.delete(bName);
-        map.data.setStyle(map.data.getStyle()); renderDashboard();
+        mapRefreshStyles(); renderDashboard();
     }
 
     function buildAndRenderDashboard() {
@@ -1496,16 +1719,8 @@
             try {
                 var cleanText = e.target.result.replace(/^\uFEFF/, '').trim();
 
-                // \uC774\uC804 GeoJSON \uBAA8\uB450 \uC81C\uAC70 (\uBA3C\uC800 \uBC30\uC5F4\uC5D0 \uC218\uC9D1 \uD6C4 \uC81C\uAC70)
-                var featuresToRemove = [];
-                if (map.data && map.data.forEach) {
-                    map.data.forEach(function(feature) {
-                        featuresToRemove.push(feature);
-                    });
-                }
-                for (var idx = 0; idx < featuresToRemove.length; idx++) {
-                    map.data.removeFeature(featuresToRemove[idx]);
-                }
+                // \uC774\uC804 GeoJSON \uBAA8\uB450 \uC81C\uAC70
+                mapClearFeatures();
                 clearAllMarkers();
 
                 // \uC0C8 GeoJSON \uB85C\uB4DC
@@ -1521,7 +1736,7 @@
                 // \uC6CC\uD06C\uC2A4\uD398\uC774\uC2A4 \uD0ED \uCD94\uAC00
                 addProjectTab(currentProject);
 
-                map.data.addGeoJson(globalGeoJson);
+                mapAddGeoJson(globalGeoJson);
                 let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180; let hasCoords = false;
                 function extractCoords(coords) {
                     if (!coords) return;
@@ -1540,10 +1755,7 @@
                         if (f && f.geometry && f.geometry.coordinates) extractCoords(f.geometry.coordinates);
                     }
                 }
-                if (hasCoords) {
-                    let sw = new naver.maps.LatLng(minLat, minLng); let ne = new naver.maps.LatLng(maxLat, maxLng);
-                    map.fitBounds(new naver.maps.LatLngBounds(sw, ne));
-                }
+                if (hasCoords) mapFitBounds(minLat, maxLat, minLng, maxLng);
                 if (showLabels) { showLabels = false; toggleLabels(); }
                 renderUnconfirmedList();
             } catch (err) { alert("도면 파싱 에러 발생"); }
@@ -1573,7 +1785,7 @@
                 
                 setSafeData(blockName, { customArea: customArea, loadKw: loadKw, manualKw: loadKw !== null, ssName: ssName, dlName: dlName, memo: memo, supplyRate: supplyRate, status: status });
             });
-            map.data.setStyle(map.data.getStyle()); updateDatalists(); renderUnconfirmedList();
+            mapRefreshStyles(); updateDatalists(); renderUnconfirmedList();
             if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
             if(viewMode === 'ss' || viewMode === 'dl') buildLegend(viewMode);
             alert("엑셀 데이터 로드 완료!");
@@ -1796,7 +2008,7 @@
         isNoLoadLocked = document.getElementById('set-lockToggle').checked;
         localStorage.setItem('cfg_opacity', globalOpacity);
         localStorage.setItem('cfg_lock', isNoLoadLocked);
-        map.data.setStyle(map.data.getStyle()); closeModals();
+        mapRefreshStyles(); closeModals();
     }
 
     function addNewType() {
@@ -1838,7 +2050,7 @@
                 });
             })
             .catch(function() {});
-        loadSettings(); map.data.setStyle(map.data.getStyle()); renderUnconfirmedList(); closeModals();
+        loadSettings(); mapRefreshStyles(); renderUnconfirmedList(); closeModals();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
     }
 
@@ -1919,7 +2131,7 @@
                     body: JSON.stringify(fileData)
                 });
                 loadSettings();
-                map.data.setStyle(map.data.getStyle());
+                mapRefreshStyles();
                 if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
                 closeLoadPresetModal();
                 closeModals();
@@ -1955,7 +2167,7 @@
         let icon = document.getElementById('multi-select-icon');
         let text = document.getElementById('multi-select-text');
         isMultiSelectMode = false; btn.classList.remove('active'); icon.innerText = "👆"; text.innerText = "마우스 다중 선택: OFF";
-        map.data.setStyle(map.data.getStyle()); updateDatalists(); renderUnconfirmedList();
+        mapRefreshStyles(); updateDatalists(); renderUnconfirmedList();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
         if(viewMode === 'ss' || viewMode === 'dl') buildLegend(viewMode);
         closeModals(); alert("선택된 필지들에 데이터가 일괄 적용되었습니다!");
@@ -1982,7 +2194,7 @@
                 localStorage.setItem('geoJson_' + currentProject, JSON.stringify(globalGeoJson));
             }
 
-            map.data.setStyle(map.data.getStyle()); closeModals(); updateDatalists(); renderUnconfirmedList();
+            mapRefreshStyles(); closeModals(); updateDatalists(); renderUnconfirmedList();
             if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
             if(viewMode==='ss'||viewMode==='dl') buildLegend(viewMode);
         }
@@ -2159,7 +2371,7 @@
         }
 
         setSafeData(currentEditingParcel, data);
-        map.data.setStyle(map.data.getStyle()); updateDatalists(); renderUnconfirmedList();
+        mapRefreshStyles(); updateDatalists(); renderUnconfirmedList();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
         if(viewMode==='ss'||viewMode==='dl') buildLegend(viewMode);
         closeModals();
@@ -2258,7 +2470,7 @@
         data.loadKw = null;
         setSafeData(currentSplitParcel, data);
         closeSplitModal();
-        map.data.setStyle(map.data.getStyle());
+        mapRefreshStyles();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
     }
 
@@ -2283,7 +2495,7 @@
         setSafeData(currentSplitParcel, data);
         document.getElementById('editKw').value = totalKw;
         closeSplitModal();
-        map.data.setStyle(map.data.getStyle());
+        mapRefreshStyles();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
         alert('✓ ' + splitParcels.length + '개 세부필지로 분할되었습니다. 총 수요: ' + totalKw.toLocaleString() + ' kW');
     }
@@ -2340,15 +2552,7 @@
         localStorage.setItem('currentProjectName', currentProject);
 
         // 5️⃣ 기존 도면 전부 제거
-        var featuresToRemove = [];
-        if (map.data && map.data.forEach) {
-            map.data.forEach(function(feature) {
-                featuresToRemove.push(feature);
-            });
-        }
-        for (var idx = 0; idx < featuresToRemove.length; idx++) {
-            map.data.removeFeature(featuresToRemove[idx]);
-        }
+        mapClearFeatures();
 
         // 6️⃣ 새 프로젝트의 GeoJSON 복구 및 로드
         let storedGeoJson = localStorage.getItem('geoJson_' + currentProject);
@@ -2356,7 +2560,7 @@
             try {
                 globalGeoJson = JSON.parse(storedGeoJson);
                 localStorage.setItem('currentGeoJson', storedGeoJson);
-                map.data.addGeoJson(globalGeoJson);
+                mapAddGeoJson(globalGeoJson);
             } catch(e) {
                 console.log('GeoJSON 복구 실패:', e);
             }
@@ -2371,7 +2575,7 @@
                         localStorage.setItem(currentProject + '_parcel_' + parcelId, JSON.stringify(projectData[parcelId]));
                     }
                 }
-                map.data.setStyle(map.data.getStyle());
+                mapRefreshStyles();
                 updateDatalists();
                 renderUnconfirmedList();
                 if(viewMode === 'ss' || viewMode === 'dl') buildLegend(viewMode);
@@ -2407,18 +2611,10 @@
         document.getElementById('currentProjectName').innerText = "";
 
         // 이전 GeoJSON 모두 제거
-        var featuresToRemove = [];
-        if (map.data && map.data.forEach) {
-            map.data.forEach(function(feature) {
-                featuresToRemove.push(feature);
-            });
-        }
-        for (var idx = 0; idx < featuresToRemove.length; idx++) {
-            map.data.removeFeature(featuresToRemove[idx]);
-        }
+        mapClearFeatures();
 
         // 화면 갱신
-        map.data.setStyle(map.data.getStyle());
+        mapRefreshStyles();
         updateDatalists();
         renderUnconfirmedList();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') closeDashboard();
