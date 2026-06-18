@@ -440,6 +440,22 @@
         </label>
         <div style="font-size:11px; color:#80868b; margin-top:5px;">단위 부하가 0으로 설정된 용도의 수동 수정을 차단합니다.</div>
     </div>
+    <div class="setting-section">
+        <div class="setting-section-title">🚫 무부하 용도 관리</div>
+        <div style="font-size:11px; color:#80868b; margin-bottom:8px; line-height:1.5;">
+            아래에 등록된 용도명은 자동으로 무부하(0 kW) 처리됩니다.<br>
+            단위 부하가 0인 유형도 별도 등록 없이 무부하로 분류됩니다.
+        </div>
+        <div id="noloadChipArea" style="display:flex; flex-wrap:wrap; gap:5px; min-height:32px; padding:7px 6px; border:1px solid #dadce0; border-radius:6px; background:#f8f9fa; margin-bottom:8px;"></div>
+        <div style="display:flex; gap:6px; align-items:center;">
+            <input type="text" id="noloadTypeInput" list="noloadTypeSuggestions" class="modal-input"
+                style="flex:1; margin:0; font-size:12px; padding:6px 8px;"
+                placeholder="용도명 입력 또는 선택 (예: 하천)"
+                onkeydown="if(event.key==='Enter'){addNoloadType();event.preventDefault();}">
+            <datalist id="noloadTypeSuggestions"></datalist>
+            <button class="btn btn-save" style="padding:6px 12px; font-size:12px; white-space:nowrap;" onclick="addNoloadType()">+ 추가</button>
+        </div>
+    </div>
     <div class="setting-section" style="border-color:#fad2cf; background:#fffaf9;">
         <div class="setting-section-title" style="color:#d93025;">⚠️ 위험 구역 (Danger Zone)</div>
         <button class="btn btn-danger" onclick="resetAllData()">현재 프로젝트 작업 데이터 전체 초기화</button>
@@ -664,6 +680,7 @@
     };
     var loadRateDict = {};
     var isNoLoadLocked = true;
+    var noloadBlockTypesSet = new Set(); // 명시적 무부하 용도 목록 (환경설정에서 관리)
     var dashData = [];
     var sortCol = '';
     var sortAsc = true;
@@ -696,8 +713,10 @@
         let savedLock = localStorage.getItem('cfg_lock');
         isNoLoadLocked = savedLock !== null ? (savedLock === 'true') : true;
         let savedOp = localStorage.getItem('cfg_opacity');
-        globalOpacity = savedOp !== null ? parseInt(savedOp) : 50; 
-        
+        globalOpacity = savedOp !== null ? parseInt(savedOp) : 50;
+        let savedNoload = tryParseJSON(localStorage.getItem('cfg_noload_types'), []);
+        noloadBlockTypesSet = new Set(Array.isArray(savedNoload) ? savedNoload : []);
+
         loadRateDict = {};
         document.querySelectorAll('.conf-rate').forEach(input => {
             let key = input.getAttribute('data-key');
@@ -1200,7 +1219,7 @@
         return total;
     }
 
-    // 블록 집계 상태: 미송전(2) > 미입력(99) > 일부송전(-2) > 무부하(3) > 송전완료(1)
+    // 블록 집계 상태: 전체완료(1) > 일부완료(-2) > 미송전(2) > 미입력(99) > 무부하(3)
     function getBlockStatus(blockName) {
         var lots = blockLotsIndex.get(blockName) || [];
         if (lots.length === 0) {
@@ -1211,12 +1230,14 @@
             var d = getLotData(blockName, lot.lotName);
             return d.status !== undefined ? parseInt(d.status) : STATUS.NONE;
         });
-        if (statuses.some(function(s){return s===STATUS.PENDING;})) {
-            return statuses.every(function(s){return s===STATUS.PENDING;}) ? STATUS.PENDING : STATUS.PARTIAL;
+        var hasDone = statuses.some(function(s){return s===STATUS.DONE;});
+        if (hasDone) {
+            // 하나라도 완료가 있으면: 전체 완료 vs 일부 완료
+            return statuses.every(function(s){return s===STATUS.DONE;}) ? STATUS.DONE : STATUS.PARTIAL;
         }
+        if (statuses.some(function(s){return s===STATUS.PENDING;})) return STATUS.PENDING;
         if (statuses.some(function(s){return s===STATUS.NONE;})) return STATUS.NONE;
-        if (statuses.some(function(s){return s===STATUS.NOLOAD;})) return STATUS.NOLOAD;
-        return STATUS.DONE;
+        return STATUS.NOLOAD;
     }
 
     // 블록 공급률은 블록 키에만 존재 (로트에는 없음)
@@ -1279,6 +1300,12 @@
 
     function isAutoNoLoad(blockType) {
         if (!blockType || typeof blockType !== 'string') return false;
+        // 명시적 무부하 용도 목록 체크
+        if (noloadBlockTypesSet.has(blockType)) return true;
+        for (let t of noloadBlockTypesSet) {
+            if (blockType.includes(t) || t.includes(blockType)) return true;
+        }
+        // 단위 부하 0인 유형 자동 분류
         let matchedKey = "";
         for (let key in loadRateDict) {
             let cleanType = blockType.replace(/용지|부지|시설/g, "");
@@ -2917,11 +2944,51 @@
         document.getElementById('helpModal').style.display = 'block';
     }
     
+    function renderNoloadChips() {
+        var area = document.getElementById('noloadChipArea');
+        if (!area) return;
+        if (noloadBlockTypesSet.size === 0) {
+            area.innerHTML = '<span style="font-size:11px; color:#9aa0a6; line-height:32px;">등록된 항목 없음</span>';
+            return;
+        }
+        area.innerHTML = Array.from(noloadBlockTypesSet).map(function(t) {
+            return '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#e8eaf6;color:#3949ab;border-radius:12px;font-size:11px;font-weight:500;">'
+                + escapeHtml(t)
+                + '<button onclick="removeNoloadType(\'' + jsArg(t) + '\')" style="background:none;border:none;cursor:pointer;color:#7986cb;font-size:13px;padding:0;line-height:1;" title="삭제">×</button>'
+                + '</span>';
+        }).join('');
+    }
+
+    function addNoloadType() {
+        var input = document.getElementById('noloadTypeInput');
+        var val = (input.value || '').trim();
+        if (!val) return;
+        noloadBlockTypesSet.add(val);
+        input.value = '';
+        renderNoloadChips();
+    }
+
+    function removeNoloadType(typeName) {
+        noloadBlockTypesSet.delete(typeName);
+        renderNoloadChips();
+    }
+
     function openEnvSettingsModal() {
         document.getElementById('set-opacity').value = globalOpacity;
         document.getElementById('opValStr').innerText = globalOpacity + '%';
-        document.getElementById('set-lockToggle').checked = isNoLoadLocked; 
-        document.getElementById('envSettingsOverlay').style.display = 'block'; document.getElementById('envSettingsModal').style.display = 'block'; 
+        document.getElementById('set-lockToggle').checked = isNoLoadLocked;
+        renderNoloadChips();
+        // datalist: 현재 GeoJSON에서 수집한 blockType 목록
+        var dl = document.getElementById('noloadTypeSuggestions');
+        if (dl && globalGeoJson && globalGeoJson.features) {
+            var types = new Set();
+            globalGeoJson.features.forEach(function(f) {
+                if (f.properties) { var t = getBlockType(f.properties); if (t && t !== '미상') types.add(t); }
+            });
+            dl.innerHTML = Array.from(types).map(function(t){ return '<option value="' + escapeHtml(t) + '">'; }).join('');
+        }
+        document.getElementById('envSettingsOverlay').style.display = 'block';
+        document.getElementById('envSettingsModal').style.display = 'block';
     }
 
     function openTypeSettingsModal() {
@@ -2956,6 +3023,8 @@
         document.getElementById('set-opacity').value = 50;
         document.getElementById('opValStr').innerText = '50%';
         document.getElementById('set-lockToggle').checked = true;
+        noloadBlockTypesSet.clear();
+        renderNoloadChips();
     }
 
     function saveEnvSettings() {
@@ -2963,6 +3032,7 @@
         isNoLoadLocked = document.getElementById('set-lockToggle').checked;
         localStorage.setItem('cfg_opacity', globalOpacity);
         localStorage.setItem('cfg_lock', isNoLoadLocked);
+        localStorage.setItem('cfg_noload_types', JSON.stringify(Array.from(noloadBlockTypesSet)));
         mapRefreshStyles(); closeModals();
     }
 
