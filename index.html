@@ -1531,10 +1531,9 @@
             
             if (st === 99) {
                 count++;
-                let coords = f.geometry ? JSON.stringify(f.geometry.coordinates) : "null";
-                listHtml += `<div class="panel-item" onclick='jumpToMapLoc(${coords})'>
+                listHtml += `<div class="panel-item" onclick='jumpFromDash(${JSON.stringify(blockName)})'>
                     <div><strong style="color:#2c3e50;">${blockName}</strong><br><span style="font-size:11px; color:#5f6368;">${blockType}</span></div>
-                    <span class="panel-badge">미입력</span> 
+                    <span class="panel-badge">미입력</span>
                 </div>`;
             }
             drawnBlocks.add(blockName);
@@ -1725,11 +1724,13 @@
     }
 
     function jumpFromDash(bName) {
-        closeDashboard(); let coords = null;
-        for(let f of globalGeoJson.features) {
-            if((f.properties.blockName || f.properties.zoneName) === bName && f.geometry) { coords = f.geometry.coordinates; break; }
-        }
-        if(coords) jumpToMapLoc(coords);
+        if (document.getElementById('dashboardOverlay').style.display === 'flex') closeDashboard();
+        if (!globalGeoJson || !globalGeoJson.features) return;
+        var blockFeatures = globalGeoJson.features.filter(function(f) {
+            return (f.properties.blockName || f.properties.zoneName) === bName && f.geometry;
+        });
+        if (blockFeatures.length === 0) return;
+        fitMapToGeoJson({ features: blockFeatures });
     }
 
     function importGeoJson(event) {
