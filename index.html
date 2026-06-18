@@ -135,11 +135,6 @@
         #statusContextMenu { position: fixed; z-index: 9000; background: #fff; border: 1px solid #dadce0; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); min-width: 160px; padding: 4px 0; display: none; }
         .ctx-menu-item { padding: 10px 16px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; color: #202124; }
         .ctx-menu-item:hover { background: #f1f3f4; }
-        .ctx-menu-sep { height: 1px; background: #e0e0e0; margin: 4px 0; }
-        #splitModePanel { position: fixed; top: 58px; left: 50%; transform: translateX(-50%); z-index: 8000; background: #1a73e8; color: #fff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); padding: 8px 16px; display: none; align-items: center; gap: 10px; font-size: 12px; font-weight: 500; white-space: nowrap; }
-        #splitModePanel .sp-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.5); color: #fff; border-radius: 4px; padding: 3px 11px; cursor: pointer; font-size: 11px; font-weight: 600; }
-        #splitModePanel .sp-btn:hover { background: rgba(255,255,255,0.35); }
-        #splitModePanel .sp-cancel { background: rgba(200,30,20,0.75); border-color: rgba(200,30,20,0.9); }
         .ctx-dot { width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0; }
 
         /* ★ Feature 2: 자동/수동 토글 스위치 */
@@ -497,19 +492,6 @@
     <div class="ctx-menu-item" onclick="setParcelStatus(2)"><div class="ctx-dot" style="background:#d93025;"></div>미송전</div>
     <div class="ctx-menu-item" onclick="setParcelStatus(3)"><div class="ctx-dot" style="background:#f8f9fa; border:1px solid #aaa;"></div>무부하</div>
     <div class="ctx-menu-item" onclick="setParcelStatus(99)"><div class="ctx-dot" style="background:#fbbc04;"></div>미입력</div>
-    <div class="ctx-menu-sep"></div>
-    <div class="ctx-menu-item" onclick="startPolygonSplit()">✂ 폴리곤 분할</div>
-</div>
-
-<!-- ★ Split Mode Panel -->
-<div id="splitModePanel">
-    <span>✂ 분할선 그리기</span>
-    <span id="splitTargetLabel" style="opacity:0.8; font-weight:400;"></span>
-    <span id="splitVertexCount" style="opacity:0.7; font-size:11px;">꼭짓점 0개</span>
-    <span style="opacity:0.6; font-size:11px; margin:0 4px;">|</span>
-    <span style="opacity:0.65; font-size:11px;">클릭: 꼭짓점 추가 &nbsp; 더블클릭: 완료</span>
-    <button class="sp-btn" onclick="finalizeSplit()">✓ 완료</button>
-    <button class="sp-btn sp-cancel" onclick="cancelSplit()">✕ 취소</button>
 </div>
 
 <!-- ★ Feature 3: 필지 분할 모달 -->
@@ -562,12 +544,6 @@
     var leafletBlockLayers = {};
     var hoveredLeafletBlock = null;
     var leafletMouseoutTimer = null;
-    var isSplitMode = false;
-    var splitTargetParcelId = null;
-    var splitLineCoords = [];
-    var splitPreviewLayer = null;
-    var splitClickTimer = null;
-    var splitNaverDblClickListener = null;
 
     const rateCategories = {
         "주거시설": { "단독주택": 0.05, "아파트": 0.08, "도시형생활주택용지": 0.06, "주상복합": 0.1 },
@@ -679,11 +655,6 @@
             map.data.addListener('mouseout', naverMouseoutHandler);
             map.data.addListener('click', naverClickHandler);
             map.data.addListener('rightclick', naverRightclickHandler);
-            splitNaverDblClickListener = map.data.addListener('dblclick', function(e) {
-                if (!isSplitMode) return;
-                if (splitClickTimer) { clearTimeout(splitClickTimer); splitClickTimer = null; }
-                finalizeSplit();
-            });
 
             var ni = document.getElementById('networkModeIndicator');
             if (ni) { ni.innerText = '🌐 온라인(사외망)'; ni.style.color = '#1a73e8'; ni.style.background = '#e8f0fe'; }
@@ -848,12 +819,6 @@
                 leafletBlockLayers[parcelId].push({ layer: layer, feature: feature });
 
                 layer.on('click', function(e) {
-                    if (isSplitMode) {
-                        if (splitClickTimer) { clearTimeout(splitClickTimer); splitClickTimer = null; return; }
-                        var lngLat = [e.latlng.lng, e.latlng.lat];
-                        splitClickTimer = setTimeout(function() { splitClickTimer = null; splitAddVertex(lngLat); }, 150);
-                        return;
-                    }
                     var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
                     if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
                     if (isMultiSelectMode) {
@@ -880,13 +845,6 @@
                     if (x + 170 > window.innerWidth) x = window.innerWidth - 175;
                     if (y + 180 > window.innerHeight) y = window.innerHeight - 185;
                     menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block';
-                });
-
-                layer.on('dblclick', function(e) {
-                    if (!isSplitMode) return;
-                    L.DomEvent.stopPropagation(e);
-                    if (splitClickTimer) { clearTimeout(splitClickTimer); splitClickTimer = null; }
-                    finalizeSplit();
                 });
 
                 layer.on('mouseover', function(e) {
@@ -1308,13 +1266,6 @@
     }
 
     function naverClickHandler(e) {
-        if (isSplitMode) {
-            if (splitClickTimer) { clearTimeout(splitClickTimer); splitClickTimer = null; return; }
-            var coord = e.coord;
-            var lngLat = [coord.lng(), coord.lat()];
-            splitClickTimer = setTimeout(function() { splitClickTimer = null; splitAddVertex(lngLat); }, 150);
-            return;
-        }
         var parcelId = e.feature.getProperty('blockName') || e.feature.getProperty('zoneName') || "알수없음";
         var blockType = e.feature.getProperty('blockType') || e.feature.getProperty('용도') || e.feature.getProperty('ZONE_NM') || "미상";
 
@@ -2734,204 +2685,6 @@
         if (document.getElementById('dashboardOverlay').style.display === 'flex') closeDashboard();
     }
 
-    // ★ 폴리곤 분할 기능
-    function startPolygonSplit() {
-        document.getElementById('statusContextMenu').style.display = 'none';
-        if (!contextMenuParcelId) return;
-        isSplitMode = true;
-        splitTargetParcelId = contextMenuParcelId;
-        splitLineCoords = [];
-        splitClickTimer = null;
-        if (splitPreviewLayer) {
-            if (useLeaflet) map.removeLayer(splitPreviewLayer);
-            else splitPreviewLayer.setMap(null);
-            splitPreviewLayer = null;
-        }
-        document.getElementById('splitTargetLabel').innerText = '[' + splitTargetParcelId + ']';
-        document.getElementById('splitVertexCount').innerText = '꼭짓점 0개';
-        document.getElementById('splitModePanel').style.display = 'flex';
-        if (useLeaflet) {
-            map.doubleClickZoom.disable();
-            map.getContainer().style.cursor = 'crosshair';
-        } else {
-            map.setOptions({ disableDoubleClickZoom: true });
-            document.getElementById('map').style.cursor = 'crosshair';
-        }
-    }
-
-    function cancelSplit() {
-        isSplitMode = false;
-        splitTargetParcelId = null;
-        splitLineCoords = [];
-        if (splitClickTimer) { clearTimeout(splitClickTimer); splitClickTimer = null; }
-        if (splitPreviewLayer) {
-            if (useLeaflet) map.removeLayer(splitPreviewLayer);
-            else splitPreviewLayer.setMap(null);
-            splitPreviewLayer = null;
-        }
-        document.getElementById('splitModePanel').style.display = 'none';
-        if (useLeaflet) {
-            map.doubleClickZoom.enable();
-            map.getContainer().style.cursor = '';
-        } else {
-            map.setOptions({ disableDoubleClickZoom: false });
-            document.getElementById('map').style.cursor = '';
-        }
-    }
-
-    function splitAddVertex(lngLat) {
-        splitLineCoords.push(lngLat);
-        document.getElementById('splitVertexCount').innerText = '꼭짓점 ' + splitLineCoords.length + '개';
-        splitUpdatePreview();
-    }
-
-    function splitUpdatePreview() {
-        if (splitLineCoords.length < 2) {
-            if (splitPreviewLayer) {
-                if (useLeaflet) map.removeLayer(splitPreviewLayer);
-                else splitPreviewLayer.setMap(null);
-                splitPreviewLayer = null;
-            }
-            return;
-        }
-        if (useLeaflet) {
-            var latLngs = splitLineCoords.map(function(c) { return [c[1], c[0]]; });
-            if (splitPreviewLayer) { splitPreviewLayer.setLatLngs(latLngs); }
-            else { splitPreviewLayer = L.polyline(latLngs, { color: '#e53935', weight: 2, dashArray: '6,4' }).addTo(map); }
-        } else {
-            var path = splitLineCoords.map(function(c) { return new naver.maps.LatLng(c[1], c[0]); });
-            if (splitPreviewLayer) { splitPreviewLayer.setPath(path); }
-            else {
-                splitPreviewLayer = new naver.maps.Polyline({ path: path, strokeColor: '#e53935', strokeWeight: 2, strokeStyle: 'shortdash', map: map });
-            }
-        }
-    }
-
-    function finalizeSplit() {
-        if (splitLineCoords.length < 2) { alert('꼭짓점을 2개 이상 찍어주세요.'); return; }
-        var success = performPolygonSplit();
-        if (success) cancelSplit();
-    }
-
-    function segIntersect(p1, p2, p3, p4) {
-        var dx1 = p2[0]-p1[0], dy1 = p2[1]-p1[1];
-        var dx2 = p4[0]-p3[0], dy2 = p4[1]-p3[1];
-        var denom = dx1*dy2 - dy1*dx2;
-        if (Math.abs(denom) < 1e-14) return null;
-        var t1 = ((p3[0]-p1[0])*dy2 - (p3[1]-p1[1])*dx2) / denom;
-        var t2 = ((p3[0]-p1[0])*dy1 - (p3[1]-p1[1])*dx1) / denom;
-        if (t2 < -1e-9 || t2 > 1+1e-9) return null;
-        t2 = Math.max(0, Math.min(1, t2));
-        return { point: [p3[0]+t2*dx2, p3[1]+t2*dy2], t1: t1 };
-    }
-
-    function splitRing(ring, extStart, extEnd) {
-        var n = ring.length - 1; // unique points (ring[n] == ring[0])
-        if (n < 3) return null;
-        var hits = [];
-        for (var i = 0; i < n; i++) {
-            var r = segIntersect(extStart, extEnd, ring[i], ring[(i+1) < n ? (i+1) : 0]);
-            if (r) hits.push({ pt: r.point, ei: i, t: r.t1 });
-        }
-        hits.sort(function(a,b){ return a.t - b.t; });
-        // deduplicate
-        var clean = [];
-        for (var i = 0; i < hits.length; i++) {
-            if (!clean.length) { clean.push(hits[i]); continue; }
-            var prev = clean[clean.length-1];
-            var d = Math.abs(hits[i].pt[0]-prev.pt[0]) + Math.abs(hits[i].pt[1]-prev.pt[1]);
-            if (d > 1e-10) clean.push(hits[i]);
-        }
-        if (clean.length < 2) return null;
-        var h0 = clean[0], h1 = clean[clean.length-1];
-        if (h0.ei === h1.ei) return null;
-        var ei0 = h0.ei, ei1 = h1.ei;
-        if (ei0 > ei1) { var tmp=h0; h0=h1; h1=tmp; ei0=h0.ei; ei1=h1.ei; }
-        var A = h0.pt, B = h1.pt;
-        var r1 = [A];
-        for (var j = ei0+1; j <= ei1; j++) r1.push(ring[j]);
-        r1.push(B); r1.push(A);
-        var r2 = [B];
-        for (var j = ei1+1; j < n; j++) r2.push(ring[j]);
-        for (var j = 0; j <= ei0; j++) r2.push(ring[j]);
-        r2.push(A); r2.push(B);
-        if (r1.length < 4 || r2.length < 4) return null;
-        return [r1, r2];
-    }
-
-    function performPolygonSplit() {
-        if (!splitTargetParcelId || splitLineCoords.length < 2) return false;
-        var targets = (globalGeoJson.features || []).filter(function(f) {
-            return f.geometry && (f.properties.blockName || f.properties.zoneName || "알수없음") === splitTargetParcelId;
-        });
-        if (!targets.length) { alert('대상 필지를 찾을 수 없습니다.'); return false; }
-
-        // Extend split line well beyond any polygon
-        var s = splitLineCoords[0], e = splitLineCoords[splitLineCoords.length-1];
-        var dx = e[0]-s[0], dy = e[1]-s[1];
-        var len = Math.sqrt(dx*dx+dy*dy);
-        if (len < 1e-12) { alert('분할선이 너무 짧습니다.'); return false; }
-        var ext = 1.0; // extend 1 degree in each direction
-        var extS = [s[0]-dx/len*ext, s[1]-dy/len*ext];
-        var extE = [e[0]+dx/len*ext, e[1]+dy/len*ext];
-
-        var newFeats = [], splitOk = false, unsplit = [];
-        for (var fi = 0; fi < targets.length; fi++) {
-            var feat = targets[fi], geom = feat.geometry, rings = null;
-            if (geom.type === 'Polygon') {
-                rings = splitRing(geom.coordinates[0], extS, extE);
-            } else if (geom.type === 'MultiPolygon') {
-                for (var pi = 0; pi < geom.coordinates.length && !rings; pi++) {
-                    rings = splitRing(geom.coordinates[pi][0], extS, extE);
-                }
-            }
-            if (rings) {
-                splitOk = true;
-                var p1 = JSON.parse(JSON.stringify(feat.properties));
-                var p2 = JSON.parse(JSON.stringify(feat.properties));
-                p1.blockName = splitTargetParcelId + '-1';
-                p2.blockName = splitTargetParcelId + '-2';
-                newFeats.push({ type:'Feature', properties:p1, geometry:{ type:'Polygon', coordinates:[rings[0]] } });
-                newFeats.push({ type:'Feature', properties:p2, geometry:{ type:'Polygon', coordinates:[rings[1]] } });
-            } else { unsplit.push(feat); }
-        }
-
-        if (!splitOk) { alert('분할선이 필지 경계와 교차하지 않습니다.\n선이 폴리곤을 가로지르도록 그려주세요.'); return false; }
-
-        var name1 = prompt('분할 필지 1 이름을 입력하세요:', splitTargetParcelId + '-1');
-        if (name1 === null) return false;
-        name1 = name1.trim() || (splitTargetParcelId + '-1');
-        var name2 = prompt('분할 필지 2 이름을 입력하세요:', splitTargetParcelId + '-2');
-        if (name2 === null) return false;
-        name2 = name2.trim() || (splitTargetParcelId + '-2');
-
-        newFeats[0].properties.blockName = name1;
-        newFeats[newFeats.length > 2 ? newFeats.length-1 : 1].properties.blockName = name2;
-
-        // Copy original parcel data to both new parcels
-        var origData = getSafeData(splitTargetParcelId);
-        if (origData) {
-            localStorage.setItem(currentProject + '_parcel_' + name1, JSON.stringify(origData));
-            localStorage.setItem(currentProject + '_parcel_' + name2, JSON.stringify(origData));
-        }
-
-        // Replace original features with split results
-        globalGeoJson.features = globalGeoJson.features.filter(function(f) {
-            return (f.properties.blockName || f.properties.zoneName || "알수없음") !== splitTargetParcelId;
-        });
-        unsplit.forEach(function(f) { globalGeoJson.features.push(f); });
-        newFeats.forEach(function(f) { globalGeoJson.features.push(f); });
-
-        mapClearFeatures();
-        mapAddGeoJson(globalGeoJson);
-        mapRefreshStyles();
-        updateDatalists();
-        renderUnconfirmedList();
-        if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
-
-        alert('✓ 분할 완료: [' + name1 + '] / [' + name2 + ']');
-        return true;
-    }
 
     renderWorkspaceTabs();
 </script>
