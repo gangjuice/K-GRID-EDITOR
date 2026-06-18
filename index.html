@@ -271,8 +271,8 @@
                     </tr>
                     <tr class="filter-row">
                         <th></th>
-                        <th><input type="text" class="filter-input" id="fltId" oninput="renderDashboard()" placeholder="검색"></th>
-                        <th><input type="text" class="filter-input" id="fltName" oninput="renderDashboard()" placeholder="검색"></th>
+                        <th><input type="text" class="filter-input" id="fltId" oninput="debouncedRenderDashboard()" placeholder="검색"></th>
+                        <th><input type="text" class="filter-input" id="fltName" oninput="debouncedRenderDashboard()" placeholder="검색"></th>
                         <th><select class="filter-input" id="fltTypeSelect" onchange="renderDashboard()"><option value="">전체보기</option></select></th>
                         <th></th><th></th><th></th><th></th><th></th>
                         <th>
@@ -540,6 +540,8 @@
     var useLeaflet = false;
     var leafletGeoJsonLayer = null;
     var leafletBlockLayers = {};
+    var hoveredLeafletBlock = null;
+    var leafletMouseoutTimer = null;
 
     const rateCategories = {
         "주거시설": { "단독주택": 0.05, "아파트": 0.08, "도시형생활주택용지": 0.06, "주상복합": 0.1 },
@@ -713,6 +715,8 @@
 
     function mapClearFeatures() {
         if (useLeaflet) {
+            if (leafletMouseoutTimer) { clearTimeout(leafletMouseoutTimer); leafletMouseoutTimer = null; }
+            hoveredLeafletBlock = null;
             if (leafletGeoJsonLayer) { map.removeLayer(leafletGeoJsonLayer); leafletGeoJsonLayer = null; }
             leafletBlockLayers = {};
         } else {
@@ -844,6 +848,20 @@
                 layer.on('mouseover', function(e) {
                     var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
                     if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
+                    // Cancel pending mouseout restoration
+                    if (leafletMouseoutTimer) { clearTimeout(leafletMouseoutTimer); leafletMouseoutTimer = null; }
+                    // Only re-highlight when entering a different block
+                    if (hoveredLeafletBlock !== parcelId) {
+                        if (hoveredLeafletBlock && leafletBlockLayers[hoveredLeafletBlock]) {
+                            leafletBlockLayers[hoveredLeafletBlock].forEach(function(item) {
+                                item.layer.setStyle(getParcelStyle(item.feature));
+                            });
+                        }
+                        hoveredLeafletBlock = parcelId;
+                        (leafletBlockLayers[parcelId] || []).forEach(function(item) {
+                            item.layer.setStyle({ weight: 3, color: '#000000' });
+                        });
+                    }
                     var data = getSafeData(parcelId) || {};
                     var st = (data.status !== undefined) ? parseInt(data.status) : (isAutoNoLoad(blockType) ? 3 : 99);
                     var statusText = (st === 1) ? "송전완료" : (st === 2 || st === 0) ? "미송전" : (st === 3) ? "무부하" : "미입력";
@@ -873,18 +891,20 @@
                         ${data.memo ? `<div class="briefing-row"><span class="briefing-label">메모:</span><span class="briefing-value">${data.memo}</span></div>` : ''}
                     `;
                     document.getElementById('briefingOverlay').style.display = 'block';
-                    // 같은 blockName의 모든 폴리곤 하이라이트
-                    (leafletBlockLayers[parcelId] || []).forEach(function(item) {
-                        item.layer.setStyle({ weight: 3, color: '#000000' });
-                    });
                 });
 
                 layer.on('mouseout', function() {
                     document.getElementById('briefingOverlay').style.display = 'none';
-                    // 같은 blockName의 모든 폴리곤 스타일 복원
-                    (leafletBlockLayers[parcelId] || []).forEach(function(item) {
-                        item.layer.setStyle(getParcelStyle(item.feature));
-                    });
+                    // Delay style restore — if mouse enters another polygon of the same block, the timer is canceled
+                    leafletMouseoutTimer = setTimeout(function() {
+                        if (hoveredLeafletBlock === parcelId) {
+                            (leafletBlockLayers[parcelId] || []).forEach(function(item) {
+                                item.layer.setStyle(getParcelStyle(item.feature));
+                            });
+                            hoveredLeafletBlock = null;
+                        }
+                        leafletMouseoutTimer = null;
+                    }, 50);
                 });
             }
         }).addTo(map);
@@ -1662,9 +1682,14 @@
         renderDashboard();
     }
 
+    var _dashFilterTimer = null;
+    function debouncedRenderDashboard() {
+        if (_dashFilterTimer) clearTimeout(_dashFilterTimer);
+        _dashFilterTimer = setTimeout(function() { _dashFilterTimer = null; renderDashboard(); }, 300);
+    }
+
     function renderDashboard() {
-        if (!globalGeoJson) return;
-        if (dashData.length === 0) { buildAndRenderDashboard(); return; }
+        if (!globalGeoJson || dashData.length === 0) return;
         let fltId = document.getElementById('fltId').value.toLowerCase();
         let fltName = document.getElementById('fltName').value.toLowerCase();
         let fltType = document.getElementById('fltTypeSelect').value;
