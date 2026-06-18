@@ -135,38 +135,40 @@
     }
 
     function detectNetworkAndInitMap() {
-        var overlay = document.getElementById('mapLoadingOverlay');
-        if (overlay) overlay.style.display = 'none';
+        var done = false;
 
-        var controller = new AbortController();
-        var timer = setTimeout(function() { controller.abort(); }, 2000);
-
-        fetch('https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=cr5pcd8cee', {
-            method: 'HEAD', signal: controller.signal
-        }).then(function() {
-            clearTimeout(timer);
-            // 온라인 — Naver Maps 스크립트 로드
-            var s = document.createElement('script');
-            s.onload = function() {
-                useLeaflet = false;
-                var ni = document.getElementById('networkModeIndicator');
-                if (ni) { ni.innerText = '🌐 온라인(사외망)'; ni.style.color = '#1a73e8'; ni.style.background = '#e8f0fe'; }
-                initMapAndStart();
-            };
-            s.onerror = function() { startLeaflet(); };
-            s.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=cr5pcd8cee';
-            document.head.appendChild(s);
-        }).catch(function() {
-            clearTimeout(timer);
-            startLeaflet();
-        });
+        function startNaver() {
+            if (done) return; done = true;
+            clearTimeout(fallbackTimer);
+            useLeaflet = false;
+            var ni = document.getElementById('networkModeIndicator');
+            if (ni) { ni.innerText = '🌐 온라인(사외망)'; ni.style.color = '#1a73e8'; ni.style.background = '#e8f0fe'; }
+            initMapAndStart();
+        }
 
         function startLeaflet() {
+            if (done) return; done = true;
+            clearTimeout(fallbackTimer);
             useLeaflet = true;
             var ni = document.getElementById('networkModeIndicator');
             if (ni) { ni.innerText = '📴 오프라인(사내망)'; ni.style.color = '#d93025'; ni.style.background = '#fce8e6'; }
             initMapAndStart();
         }
+
+        // 3초 안에 Naver Maps 로드 안되면 Leaflet으로 fallback
+        var fallbackTimer = setTimeout(startLeaflet, 3000);
+
+        var s = document.createElement('script');
+        s.onload = function() {
+            if (typeof naver !== 'undefined' && naver.maps) {
+                startNaver();
+            } else {
+                startLeaflet();
+            }
+        };
+        s.onerror = startLeaflet;
+        s.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=cr5pcd8cee';
+        document.head.appendChild(s);
     }
 
     detectNetworkAndInitMap();
