@@ -732,6 +732,18 @@
         }
     }
 
+    function fitMapToGeoJson(geoJson) {
+        if (!geoJson || !geoJson.features) return;
+        var minLat = 90, maxLat = -90, minLng = 180, maxLng = -180, hasCoords = false;
+        function scan(c) {
+            if (!c) return;
+            if (typeof c[0] === 'number') { minLng = Math.min(minLng, c[0]); maxLng = Math.max(maxLng, c[0]); minLat = Math.min(minLat, c[1]); maxLat = Math.max(maxLat, c[1]); hasCoords = true; }
+            else c.forEach(scan);
+        }
+        geoJson.features.forEach(function(f) { if (f && f.geometry && f.geometry.coordinates) scan(f.geometry.coordinates); });
+        if (hasCoords) mapFitBounds(minLat, maxLat, minLng, maxLng);
+    }
+
     // ★ Leaflet 필지 스타일 함수
     function getParcelStyle(feature) {
         if (!isPolygonVisible) return { color: '#000', weight: 0, fillOpacity: 0, opacity: 0 };
@@ -1766,25 +1778,7 @@
                 addProjectTab(currentProject);
 
                 mapAddGeoJson(globalGeoJson);
-                let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180; let hasCoords = false;
-                function extractCoords(coords) {
-                    if (!coords) return;
-                    if (Array.isArray(coords)) {
-                        if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
-                            let lng = coords[0], lat = coords[1];
-                            if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
-                            if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
-                            hasCoords = true;
-                        } else { for(var k=0; k<coords.length; k++) extractCoords(coords[k]); }
-                    }
-                }
-                if (globalGeoJson.features) {
-                    for(var j=0; j<globalGeoJson.features.length; j++) {
-                        var f = globalGeoJson.features[j];
-                        if (f && f.geometry && f.geometry.coordinates) extractCoords(f.geometry.coordinates);
-                    }
-                }
-                if (hasCoords) mapFitBounds(minLat, maxLat, minLng, maxLng);
+                fitMapToGeoJson(globalGeoJson);
                 if (showLabels) { showLabels = false; toggleLabels(); }
                 renderUnconfirmedList();
             } catch (err) { alert("도면 파싱 에러 발생"); }
@@ -2590,6 +2584,7 @@
                 globalGeoJson = JSON.parse(storedGeoJson);
                 localStorage.setItem('currentGeoJson', storedGeoJson);
                 mapAddGeoJson(globalGeoJson);
+                fitMapToGeoJson(globalGeoJson);
             } catch(e) {
                 console.log('GeoJSON 복구 실패:', e);
             }
