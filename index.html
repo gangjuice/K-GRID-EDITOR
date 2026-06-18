@@ -870,22 +870,36 @@
         var targetName = e.feature.getProperty('blockName') || e.feature.getProperty('zoneName');
         if (!targetName) return;
 
-        // 브리핑 오버레이 표시
-        let data = getSafeData(targetName) || { customArea: null, loadKw: null, ssName: "", dlName: "", supplyRate: 0, status: 99, memo: "" };
-        let statusText = (data.status === 1) ? "송전완료" : (data.status === 2 || data.status === 0) ? "미송전" : (data.status === 3) ? "무부하" : "미입력";
-        let area = data.customArea || e.feature.getProperty('area') || e.feature.getProperty('면적') || 0;
+        // 브리핑 오버레이 표시 (대시보드와 동일 로직)
+        let data = getSafeData(targetName) || {};
+        let st = (data.status !== undefined) ? parseInt(data.status) : (isAutoNoLoad(blockType) ? 3 : 99);
+        let statusText = (st === 1) ? "송전완료" : (st === 2 || st === 0) ? "미송전" : (st === 3) ? "무부하" : "미입력";
 
-        // loadKw가 없으면 자동계산값 사용 (모달과 동일 로직)
-        let kw = data.loadKw || 0;
-        if (!kw && data.status === 1) {
-            let blockTypeHover = e.feature.getProperty('blockType') || e.feature.getProperty('용도') || e.feature.getProperty('ZONE_NM') || "";
-            for (let key in loadRateDict) {
-                let clean = blockTypeHover.replace(/용지|부지|시설/g, "");
-                if (blockTypeHover.includes(key) || key.includes(clean)) { kw = Math.round(area * loadRateDict[key]); break; }
-            }
+        let calcArea = e.feature.getProperty('area') || e.feature.getProperty('면적') || e.feature.getProperty('SHAPE_Area') || 0;
+        if (!calcArea) {
+            try {
+                var geom = e.feature.getGeometry();
+                if (geom && geom.getType && geom.getType() === 'Polygon') {
+                    var coords = [geom.getAt(0).getArray().map(function(p){ return [p.lng(), p.lat()]; })];
+                    calcArea = calculateAreaM2(coords);
+                }
+            } catch(ex) {}
         }
+        calcArea = Math.round(calcArea || 0);
+        let area = (data.customArea > 0) ? data.customArea : calcArea;
 
-        let supplied = kw * (data.supplyRate / 100) || 0;
+        let loadKw = (data.loadKw !== undefined && data.loadKw !== null) ? parseFloat(data.loadKw) : null;
+        let calcVal = 0; let matchedKey = "";
+        for (let key in loadRateDict) {
+            let cleanType = blockType.replace(/용지|부지|시설/g, "");
+            if (blockType.includes(key) || key.includes(cleanType)) { calcVal = Math.round(area * loadRateDict[key]); matchedKey = key; break; }
+        }
+        let kw = 0;
+        if (loadKw !== null && loadKw > 0) kw = loadKw;
+        else if (matchedKey !== "") kw = calcVal;
+
+        let supplyRate = (data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((st === 1) ? 100 : 0);
+        let supplied = kw * (supplyRate / 100) || 0;
         let remain = kw - supplied || 0;
 
         let briefingHtml = `
@@ -893,7 +907,7 @@
             <div class="briefing-row"><span class="briefing-label">용도:</span><span class="briefing-value">${blockType}</span></div>
             <div class="briefing-row"><span class="briefing-label">필지 면적:</span><span class="briefing-value">${area.toFixed(0)}㎡</span></div>
             <div class="briefing-row"><span class="briefing-label">수요부하:</span><span class="briefing-value">${kw.toFixed(1)}kW</span></div>
-            <div class="briefing-row"><span class="briefing-label">공급률:</span><span class="briefing-value">${data.supplyRate}%</span></div>
+            <div class="briefing-row"><span class="briefing-label">공급률:</span><span class="briefing-value">${supplyRate}%</span></div>
             <div class="briefing-row"><span class="briefing-label">공급완료:</span><span class="briefing-value">${supplied.toFixed(1)}kW</span></div>
             <div class="briefing-row"><span class="briefing-label">미송전:</span><span class="briefing-value">${remain.toFixed(1)}kW</span></div>
             <div class="briefing-row"><span class="briefing-label">상태:</span><span class="briefing-value">${statusText}</span></div>
