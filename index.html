@@ -1287,11 +1287,17 @@
         if (newStatus === 1) {
             data.supplyRate = 100;
             if (!data.manualKw) {
-                var area = data.customArea || contextMenuFeature.getProperty('area') || contextMenuFeature.getProperty('면적') || 0;
+                var area = data.customArea || 0;
+                if (!area && contextMenuFeature) {
+                    // Naver: feature.getProperty(), Leaflet: feature.properties
+                    area = (typeof contextMenuFeature.getProperty === 'function')
+                        ? (contextMenuFeature.getProperty('area') || contextMenuFeature.getProperty('면적') || 0)
+                        : ((contextMenuFeature.properties && (contextMenuFeature.properties.area || contextMenuFeature.properties.면적)) || 0);
+                }
                 if (!area && globalGeoJson && globalGeoJson.features) {
                     for (var f of globalGeoJson.features) {
                         if ((f.properties.blockName || f.properties.zoneName) === contextMenuParcelId && f.geometry) {
-                            area = calculateAreaM2(f.geometry.coordinates); break;
+                            area += calculateAreaM2(f.geometry.coordinates);
                         }
                     }
                 }
