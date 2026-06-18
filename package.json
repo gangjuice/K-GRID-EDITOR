@@ -43,6 +43,6 @@
     "portable": {
       "artifactName": "K-GRID-EDITOR-v${version}.exe"
     },
-    "asar": true
+    "asar": false
   }
 }
