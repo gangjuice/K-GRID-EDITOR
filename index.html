@@ -680,7 +680,9 @@
     };
     var loadRateDict = {};
     var isNoLoadLocked = true;
-    var noloadBlockTypesSet = new Set(); // 명시적 무부하 용도 목록 (환경설정에서 관리)
+    // 기본 무부하 용도 목록 (rateCategories에서 0인 항목 전체)
+    var DEFAULT_NOLOAD_TYPES = ['도로','보행자전용도로','자전거전용도로','주차장','자동차정류장','철도시설용지','녹지','공원','공공공지','광장','하천','변전시설','저류시설','배수시설','유보지'];
+    var noloadBlockTypesSet = new Set(DEFAULT_NOLOAD_TYPES);
     var dashData = [];
     var sortCol = '';
     var sortAsc = true;
@@ -714,8 +716,12 @@
         isNoLoadLocked = savedLock !== null ? (savedLock === 'true') : true;
         let savedOp = localStorage.getItem('cfg_opacity');
         globalOpacity = savedOp !== null ? parseInt(savedOp) : 50;
-        let savedNoload = tryParseJSON(localStorage.getItem('cfg_noload_types'), []);
-        noloadBlockTypesSet = new Set(Array.isArray(savedNoload) ? savedNoload : []);
+        let savedNoloadRaw = localStorage.getItem('cfg_noload_types');
+        if (savedNoloadRaw !== null) {
+            let savedNoload = tryParseJSON(savedNoloadRaw, DEFAULT_NOLOAD_TYPES);
+            noloadBlockTypesSet = new Set(Array.isArray(savedNoload) ? savedNoload : DEFAULT_NOLOAD_TYPES);
+        }
+        // savedNoloadRaw === null이면 위에서 초기화한 DEFAULT_NOLOAD_TYPES Set 유지
 
         loadRateDict = {};
         document.querySelectorAll('.conf-rate').forEach(input => {
@@ -3023,7 +3029,7 @@
         document.getElementById('set-opacity').value = 50;
         document.getElementById('opValStr').innerText = '50%';
         document.getElementById('set-lockToggle').checked = true;
-        noloadBlockTypesSet.clear();
+        noloadBlockTypesSet = new Set(DEFAULT_NOLOAD_TYPES);
         renderNoloadChips();
     }
 
