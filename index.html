@@ -1447,7 +1447,7 @@
             if (intersect) inside = !inside;
         }
 
-        if (inside) return new naver.maps.LatLng(cy, cx);
+        if (inside) return { lat: cy, lng: cx };
 
         let stepX = (maxX - minX) / 10;
         let stepY = (maxY - minY) / 10;
@@ -1462,11 +1462,11 @@
                     let intersect = ((yi > ty) != (yj > ty)) && (tx < (xj - xi) * (ty - yi) / (yj - yi) + xi);
                     if (intersect) tInside = !tInside;
                 }
-                if (tInside) return new naver.maps.LatLng(ty, tx); 
+                if (tInside) return { lat: ty, lng: tx };
             }
         }
-        
-        return new naver.maps.LatLng((minY + maxY) / 2, (minX + maxX) / 2);
+
+        return { lat: (minY + maxY) / 2, lng: (minX + maxX) / 2 };
     }
 
     function toggleLabels() {
@@ -1484,7 +1484,7 @@
                 let centroid = getVisualCentroid(f.geometry.coordinates);
                 if (centroid) {
                     let marker = new naver.maps.Marker({
-                        position: centroid, map: map,
+                        position: new naver.maps.LatLng(centroid.lat, centroid.lng), map: map,
                         icon: {
                             content: `<div style="color:#2c3e50; font-size:12px; font-weight:900; text-shadow: -1.5px -1.5px 0 #fff, 1.5px -1.5px 0 #fff, -1.5px 1.5px 0 #fff, 1.5px 1.5px 0 #fff; pointer-events:none; white-space:nowrap; transform: translate(-50%, -50%);">${blockName}</div>`,
                             anchor: new naver.maps.Point(0, 0)
@@ -1534,7 +1534,14 @@
     function jumpToMapLoc(coords) {
         if (!coords) return;
         let centroid = getVisualCentroid(coords);
-        if (centroid) { map.setZoom(17); map.panTo(centroid); }
+        if (!centroid) return;
+        if (useLeaflet) {
+            map.setZoom(17);
+            map.panTo([centroid.lat, centroid.lng]);
+        } else {
+            map.setZoom(17);
+            map.panTo(new naver.maps.LatLng(centroid.lat, centroid.lng));
+        }
     }
 
     function openDashboard() {
