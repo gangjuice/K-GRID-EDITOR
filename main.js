@@ -6,8 +6,13 @@ const fs = require("fs");
 const server = express();
 let dataDir = null;
 
-server.use(express.static(__dirname));
-server.use(express.json());
+// 정적 자산은 public/ 폴더만 노출 (main.js·package.json·data 등 루트 파일 비공개)
+server.use("/public", express.static(path.join(__dirname, "public")));
+server.use(express.json({ limit: "50mb" }));
+
+// index.html은 명시적 라우트로 제공
+server.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
+server.get("/index.html", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 
 
 // 데이터 자동 저장 API
@@ -30,6 +35,32 @@ server.post("/api/save-data", (req, res) => {
         res.json({ success: true, message: "데이터 저장 완료" });
     } catch (err) {
         console.error("데이터 저장 에러:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 전체 필지 일괄 저장 API (개별 요청 N개 → 단일 요청)
+server.post("/api/save-batch", (req, res) => {
+    try {
+        const { projectName, parcels } = req.body;
+        if (!projectName || !parcels || !dataDir) {
+            return res.status(400).json({ error: "projectName과 parcels 필수" });
+        }
+
+        const filePath = path.join(dataDir, `${projectName}.json`);
+        let projectData = {};
+        if (fs.existsSync(filePath)) {
+            projectData = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+        }
+
+        // 기존 데이터에 병합 (전달된 필지만 덮어씀)
+        for (const parcelId in parcels) {
+            projectData[parcelId] = parcels[parcelId];
+        }
+        fs.writeFileSync(filePath, JSON.stringify(projectData, null, 2), "utf-8");
+        res.json({ success: true, count: Object.keys(parcels).length });
+    } catch (err) {
+        console.error("일괄 저장 에러:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -100,7 +131,6 @@ function createWindow() {
 
     win.loadURL("http://localhost:8000/index.html");
     win.setMenuBarVisibility(false);
-    win.webContents.openDevTools(); // 디버그용 — 확인 후 이 줄 삭제
 }
 
 app.whenReady().then(() => {
