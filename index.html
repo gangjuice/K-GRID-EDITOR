@@ -742,6 +742,7 @@
     }
 
     function mapAddGeoJson(geoJson) {
+        buildFeatureIndex();
         if (useLeaflet) {
             renderLeafletLayer();
         } else {
@@ -882,9 +883,10 @@
                 layer.on('mouseover', function(e) {
                     var blockType = feature.properties.blockType || feature.properties.용도 || feature.properties.ZONE_NM || "미상";
                     if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
-                    // Cancel pending mouseout restoration
                     if (leafletMouseoutTimer) { clearTimeout(leafletMouseoutTimer); leafletMouseoutTimer = null; }
-                    // Only re-highlight when entering a different block
+                    var lotName = feature.properties.lotName || "";
+
+                    // 블록 전체 하이라이트 (기존 블록에서 나왔으면 원복)
                     if (hoveredLeafletBlock !== parcelId) {
                         if (hoveredLeafletBlock && leafletBlockLayers[hoveredLeafletBlock]) {
                             leafletBlockLayers[hoveredLeafletBlock].forEach(function(item) {
@@ -892,33 +894,47 @@
                             });
                         }
                         hoveredLeafletBlock = parcelId;
-                        (leafletBlockLayers[parcelId] || []).forEach(function(item) {
-                            item.layer.setStyle({ weight: 3, color: '#000000' });
-                        });
                     }
-                    var data = getSafeData(parcelId) || {};
-                    var st = (data.status !== undefined) ? parseInt(data.status) : (isAutoNoLoad(blockType) ? 3 : 99);
+                    // 같은 블록: 전체 경계 강조, 호버된 lot는 더 굵고 주황
+                    (leafletBlockLayers[parcelId] || []).forEach(function(item) {
+                        var iLot = item.feature.properties.lotName || "";
+                        item.layer.setStyle(iLot === lotName
+                            ? { weight: 4, color: '#ff6d00' }
+                            : { weight: 2, color: '#2c3e50' });
+                    });
+
+                    // lot 단위 브리핑
+                    var merged = getLotData(parcelId, lotName);
+                    var blockData = getSafeData(parcelId) || {};
+                    var st = (blockData.status !== undefined) ? parseInt(blockData.status) : (isAutoNoLoad(blockType) ? 3 : 99);
                     var statusText = (st === 1) ? "송전완료" : (st === 2 || st === 0) ? "미송전" : (st === 3) ? "무부하" : "미입력";
-                    var calcArea = Math.round(blockAreaCache[parcelId] || 0);
-                    var area = (data.customArea > 0) ? data.customArea : calcArea;
-                    var kw = getBlockTotalKw(parcelId);
-                    var supplyRate = (data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((st === 1) ? 100 : 0);
-                    var supplied = kw * (supplyRate / 100) || 0;
-                    var remain = kw - supplied || 0;
-                    var lLots = blockLotsIndex.get(parcelId) || [];
-                    var lLotStr = lLots.length > 0 ? ` (${lLots.length}로트)` : '';
+                    var lotArea = Math.round((merged.customArea > 0 ? merged.customArea : (blockAreaCache[getLotKey(parcelId, lotName)] || blockAreaCache[parcelId] || 0)));
+                    var lotKw = (merged.loadKw !== null && merged.loadKw !== undefined)
+                        ? (parseFloat(merged.loadKw) || 0) : calcAutoKw(blockType, lotArea).kw;
+                    var blockTotalKw = getBlockTotalKw(parcelId);
+                    var supplyRate = (blockData.supplyRate !== undefined) ? parseInt(blockData.supplyRate) : ((st === 1) ? 100 : 0);
+                    var supplied = lotKw * (supplyRate / 100) || 0;
+                    var remain = lotKw - supplied || 0;
+                    var bLots = blockLotsIndex.get(parcelId) || [];
+                    var hasOv = !!getSafeData(getLotKey(parcelId, lotName));
+                    var ovBadge = hasOv ? `<span style="font-size:10px;background:#ff6d00;color:#fff;border-radius:3px;padding:1px 5px;margin-left:4px;">개별</span>` : '';
+                    var lotTitle = (bLots.length > 0 && lotName)
+                        ? `${parcelId} <span style="font-size:12px;opacity:0.85;">/ ${lotName}</span>` : parcelId;
+                    var blockSum = bLots.length > 1
+                        ? `<div class="briefing-row" style="border-top:1px solid rgba(255,255,255,0.2);margin-top:4px;padding-top:4px;"><span class="briefing-label">블록 합계:</span><span class="briefing-value">${blockTotalKw.toLocaleString()} kW (${bLots.length}로트)</span></div>` : '';
                     document.getElementById('briefingContent').innerHTML = `
-                        <div class="briefing-title">${parcelId}${lLotStr}</div>
+                        <div class="briefing-title">${lotTitle}</div>
                         <div class="briefing-row"><span class="briefing-label">용도:</span><span class="briefing-value">${blockType}</span></div>
-                        <div class="briefing-row"><span class="briefing-label">필지 면적:</span><span class="briefing-value">${area.toFixed(0)}㎡</span></div>
-                        <div class="briefing-row"><span class="briefing-label">수요부하:</span><span class="briefing-value">${kw.toFixed(1)}kW</span></div>
+                        <div class="briefing-row"><span class="briefing-label">로트 면적:</span><span class="briefing-value">${lotArea.toLocaleString()}㎡</span></div>
+                        <div class="briefing-row"><span class="briefing-label">수요부하:</span><span class="briefing-value">${lotKw.toLocaleString(undefined,{maximumFractionDigits:1})}kW${ovBadge}</span></div>
                         <div class="briefing-row"><span class="briefing-label">공급률:</span><span class="briefing-value">${supplyRate}%</span></div>
                         <div class="briefing-row"><span class="briefing-label">공급완료:</span><span class="briefing-value">${supplied.toFixed(1)}kW</span></div>
                         <div class="briefing-row"><span class="briefing-label">미송전:</span><span class="briefing-value">${remain.toFixed(1)}kW</span></div>
                         <div class="briefing-row"><span class="briefing-label">상태:</span><span class="briefing-value">${statusText}</span></div>
-                        <div class="briefing-row"><span class="briefing-label">변전소:</span><span class="briefing-value">${data.ssName || "미정"}</span></div>
-                        <div class="briefing-row"><span class="briefing-label">선로:</span><span class="briefing-value">${data.dlName || "미정"}</span></div>
-                        ${data.memo ? `<div class="briefing-row"><span class="briefing-label">메모:</span><span class="briefing-value">${data.memo}</span></div>` : ''}
+                        <div class="briefing-row"><span class="briefing-label">변전소:</span><span class="briefing-value">${blockData.ssName || "미정"}</span></div>
+                        <div class="briefing-row"><span class="briefing-label">선로:</span><span class="briefing-value">${blockData.dlName || "미정"}</span></div>
+                        ${blockData.memo ? `<div class="briefing-row"><span class="briefing-label">메모:</span><span class="briefing-value">${blockData.memo}</span></div>` : ''}
+                        ${blockSum}
                     `;
                     document.getElementById('briefingOverlay').style.display = 'block';
                 });
@@ -1358,74 +1374,85 @@
         var blockType = e.feature.getProperty('blockType') || e.feature.getProperty('용도') || e.feature.getProperty('ZONE_NM') || "미상";
         if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
 
-        var targetName = e.feature.getProperty('blockName') || e.feature.getProperty('zoneName');
-        if (!targetName) return;
+        var blockName = e.feature.getProperty('blockName') || e.feature.getProperty('zoneName');
+        if (!blockName) return;
+        var lotName = e.feature.getProperty('lotName') || "";
 
-        // 브리핑 오버레이 표시 (대시보드와 동일 로직)
-        let data = getSafeData(targetName) || {};
-        let st = (data.status !== undefined) ? parseInt(data.status) : (isAutoNoLoad(blockType) ? 3 : 99);
-        let statusText = (st === 1) ? "송전완료" : (st === 2 || st === 0) ? "미송전" : (st === 3) ? "무부하" : "미입력";
+        // lot 단위 데이터 병합
+        var merged = getLotData(blockName, lotName);
+        var blockData = getSafeData(blockName) || {};
+        var st = (blockData.status !== undefined) ? parseInt(blockData.status) : (isAutoNoLoad(blockType) ? 3 : 99);
+        var statusText = (st === 1) ? "송전완료" : (st === 2 || st === 0) ? "미송전" : (st === 3) ? "무부하" : "미입력";
 
-        // globalGeoJson에서 피처를 직접 찾아 면적 계산 (Naver Maps 피처 객체 geometry 파싱 불가)
-        let calcArea = 0;
+        // 이 피처의 실제 면적 (Naver는 geometry 파싱 불가 → GeoJSON에서 직접 찾기)
+        let lotArea = 0;
         if (globalGeoJson && globalGeoJson.features) {
             for (let gf of globalGeoJson.features) {
-                let gfName = gf.properties && (gf.properties.blockName || gf.properties.zoneName);
-                if (gfName === targetName) {
-                    let propArea = gf.properties.area || gf.properties.면적 || gf.properties.SHAPE_Area;
-                    calcArea = propArea ? parseFloat(propArea) : (gf.geometry && gf.geometry.coordinates ? calculateAreaM2(gf.geometry.coordinates) : 0);
+                let gfBlock = gf.properties && (gf.properties.blockName || gf.properties.zoneName);
+                let gfLot = gf.properties && (gf.properties.lotName || "");
+                if (gfBlock === blockName && gfLot === lotName) {
+                    let pa = gf.properties.area || gf.properties.면적 || gf.properties.SHAPE_Area;
+                    lotArea = pa ? parseFloat(pa) : (gf.geometry && gf.geometry.coordinates ? calculateAreaM2(gf.geometry.coordinates) : 0);
                     break;
                 }
             }
         }
-        calcArea = Math.round(calcArea || 0);
-        let area = (data.customArea > 0) ? data.customArea : calcArea;
+        lotArea = Math.round((merged.customArea > 0 ? merged.customArea : lotArea) || 0);
 
-        let kw = getBlockTotalKw(targetName);
+        var bLots = blockLotsIndex.get(blockName) || [];
+        var lotKw = (merged.loadKw !== null && merged.loadKw !== undefined)
+            ? (parseFloat(merged.loadKw) || 0)
+            : calcAutoKw(blockType, lotArea).kw;
+        var blockTotalKw = getBlockTotalKw(blockName);
+        var supplyRate = (blockData.supplyRate !== undefined) ? parseInt(blockData.supplyRate) : ((st === 1) ? 100 : 0);
+        var supplied = lotKw * (supplyRate / 100) || 0;
+        var remain = lotKw - supplied || 0;
+        var hasLotOverride = !!getSafeData(getLotKey(blockName, lotName));
 
-        let supplyRate = (data.supplyRate !== undefined) ? parseInt(data.supplyRate) : ((st === 1) ? 100 : 0);
-        let supplied = kw * (supplyRate / 100) || 0;
-        let remain = kw - supplied || 0;
+        var lotTitle = (bLots.length > 0 && lotName)
+            ? `${blockName} <span style="font-size:12px; opacity:0.85;">/ ${lotName}</span>`
+            : blockName;
+        var blockSummary = bLots.length > 1
+            ? `<div class="briefing-row" style="border-top:1px solid rgba(255,255,255,0.2); margin-top:4px; padding-top:4px;"><span class="briefing-label">블록 합계:</span><span class="briefing-value">${blockTotalKw.toLocaleString()} kW (${bLots.length}로트)</span></div>` : '';
+        var overrideBadge = hasLotOverride ? `<span style="font-size:10px; background:#ff6d00; color:#fff; border-radius:3px; padding:1px 5px; margin-left:4px;">개별설정</span>` : '';
 
-        let bLots = blockLotsIndex.get(targetName) || [];
-        let lotInfoStr = bLots.length > 0 ? ` (${bLots.length}로트)` : '';
-        let briefingHtml = `
-            <div class="briefing-title">${targetName}${lotInfoStr}</div>
+        document.getElementById('briefingContent').innerHTML = `
+            <div class="briefing-title">${lotTitle}</div>
             <div class="briefing-row"><span class="briefing-label">용도:</span><span class="briefing-value">${blockType}</span></div>
-            <div class="briefing-row"><span class="briefing-label">필지 면적:</span><span class="briefing-value">${area.toFixed(0)}㎡</span></div>
-            <div class="briefing-row"><span class="briefing-label">수요부하:</span><span class="briefing-value">${kw.toFixed(1)}kW</span></div>
+            <div class="briefing-row"><span class="briefing-label">로트 면적:</span><span class="briefing-value">${lotArea.toLocaleString()}㎡</span></div>
+            <div class="briefing-row"><span class="briefing-label">수요부하:</span><span class="briefing-value">${lotKw.toLocaleString(undefined,{maximumFractionDigits:1})}kW${overrideBadge}</span></div>
             <div class="briefing-row"><span class="briefing-label">공급률:</span><span class="briefing-value">${supplyRate}%</span></div>
             <div class="briefing-row"><span class="briefing-label">공급완료:</span><span class="briefing-value">${supplied.toFixed(1)}kW</span></div>
             <div class="briefing-row"><span class="briefing-label">미송전:</span><span class="briefing-value">${remain.toFixed(1)}kW</span></div>
             <div class="briefing-row"><span class="briefing-label">상태:</span><span class="briefing-value">${statusText}</span></div>
-            <div class="briefing-row"><span class="briefing-label">변전소:</span><span class="briefing-value">${data.ssName || "미정"}</span></div>
-            <div class="briefing-row"><span class="briefing-label">선로:</span><span class="briefing-value">${data.dlName || "미정"}</span></div>
-            ${data.memo ? `<div class="briefing-row"><span class="briefing-label">메모:</span><span class="briefing-value">${data.memo}</span></div>` : ''}
+            <div class="briefing-row"><span class="briefing-label">변전소:</span><span class="briefing-value">${blockData.ssName || "미정"}</span></div>
+            <div class="briefing-row"><span class="briefing-label">선로:</span><span class="briefing-value">${blockData.dlName || "미정"}</span></div>
+            ${blockData.memo ? `<div class="briefing-row"><span class="briefing-label">메모:</span><span class="briefing-value">${blockData.memo}</span></div>` : ''}
+            ${blockSummary}
         `;
-        document.getElementById('briefingContent').innerHTML = briefingHtml;
         document.getElementById('briefingOverlay').style.display = 'block';
 
+        // 같은 blockName 전체 경계 하이라이트, 호버된 lot은 더 강조
+        var isSelected = selectedParcels.has(blockName);
         map.data.getAllFeature().forEach(function(f) {
-            if ((f.getProperty('blockName') || f.getProperty('zoneName')) === targetName) {
-                let isSelected = selectedParcels.has(targetName);
-                map.data.overrideStyle(f, {
-                    strokeWeight: isSelected ? 5 : 3,
-                    strokeColor: isSelected ? '#b31412' : '#000000',
-                    fillOpacity: Math.min((1 - globalOpacity/100) + 0.3, 0.95)
-                });
-            }
+            var fBlock = f.getProperty('blockName') || f.getProperty('zoneName');
+            if (fBlock !== blockName) return;
+            var fLot = f.getProperty('lotName') || "";
+            var isHoveredLot = (fLot === lotName);
+            map.data.overrideStyle(f, {
+                strokeWeight: isHoveredLot ? 4 : 2,
+                strokeColor: isHoveredLot ? '#ff6d00' : (isSelected ? '#b31412' : '#2c3e50'),
+                fillOpacity: Math.min((1 - globalOpacity/100) + (isHoveredLot ? 0.35 : 0.15), 0.95)
+            });
         });
     }
 
     function naverMouseoutHandler(e) {
-        var targetName = e.feature.getProperty('blockName') || e.feature.getProperty('zoneName');
-        if (!targetName) return;
-
-        // 브리핑 오버레이 숨김
+        var blockName = e.feature.getProperty('blockName') || e.feature.getProperty('zoneName');
+        if (!blockName) return;
         document.getElementById('briefingOverlay').style.display = 'none';
-
         map.data.getAllFeature().forEach(function(f) {
-            if ((f.getProperty('blockName') || f.getProperty('zoneName')) === targetName) map.data.revertStyle(f);
+            if ((f.getProperty('blockName') || f.getProperty('zoneName')) === blockName) map.data.revertStyle(f);
         });
     }
 
