@@ -13,6 +13,9 @@ on:
         required: false
         default: 'latest'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -45,8 +48,6 @@ jobs:
           name: K-GRID-EDITOR ${{ github.ref_name }}
           files: dist/*
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
@@ -57,5 +58,3 @@ jobs:
           files: dist/*
           prerelease: ${{ github.event.inputs.version == 'latest' }}
           generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
