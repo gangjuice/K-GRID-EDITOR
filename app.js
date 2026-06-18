@@ -134,10 +134,42 @@
         // 앱 시작 시 자동 복구 제거 — 사용자가 직접 파일을 열어야 함
     }
 
-    // Leaflet 고정 (사내망 환경 기본값)
-    useLeaflet = true;
-    document.getElementById('mapLoadingOverlay').style.display = 'none';
-    initMapAndStart();
+    function detectNetworkAndInitMap() {
+        var overlay = document.getElementById('mapLoadingOverlay');
+        if (overlay) overlay.style.display = 'none';
+
+        var controller = new AbortController();
+        var timer = setTimeout(function() { controller.abort(); }, 2000);
+
+        fetch('https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=cr5pcd8cee', {
+            method: 'HEAD', signal: controller.signal
+        }).then(function() {
+            clearTimeout(timer);
+            // 온라인 — Naver Maps 스크립트 로드
+            var s = document.createElement('script');
+            s.onload = function() {
+                useLeaflet = false;
+                var ni = document.getElementById('networkModeIndicator');
+                if (ni) { ni.innerText = '🌐 온라인(사외망)'; ni.style.color = '#1a73e8'; ni.style.background = '#e8f0fe'; }
+                initMapAndStart();
+            };
+            s.onerror = function() { startLeaflet(); };
+            s.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=cr5pcd8cee';
+            document.head.appendChild(s);
+        }).catch(function() {
+            clearTimeout(timer);
+            startLeaflet();
+        });
+
+        function startLeaflet() {
+            useLeaflet = true;
+            var ni = document.getElementById('networkModeIndicator');
+            if (ni) { ni.innerText = '📴 오프라인(사내망)'; ni.style.color = '#d93025'; ni.style.background = '#fce8e6'; }
+            initMapAndStart();
+        }
+    }
+
+    detectNetworkAndInitMap();
 
     // ★ 지도 추상화 함수 (Naver/Leaflet 공통 인터페이스)
     function showAlert(msg, onOk) {
