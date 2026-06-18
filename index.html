@@ -1300,23 +1300,11 @@
             if(ssVal) ssSet.add(ssVal);
             if(dlVal) dlSet.add(dlVal);
 
-            if (data && data.splitParcels && data.splitParcels.length > 0) {
-                data.splitParcels.forEach(function(sp, si) {
-                    var spSupplied = sp.loadKw * (supplyRate / 100);
-                    dashData.push({
-                        id: index + '-' + (si+1), name: sp.name, type: blockType, area: 0,
-                        kw: sp.loadKw, rate: supplyRate, supplied: spSupplied, remain: sp.loadKw - spSupplied,
-                        status: stText, ss: ssVal, dl: dlVal, memo: (data.memo || '') + (si === 0 ? ' [분할:' + blockName + ']' : ''),
-                        isSplit: true, parentName: blockName
-                    });
-                });
-            } else {
-                dashData.push({
-                    id: index, name: blockName, type: blockType, area: finalArea,
-                    kw: finalKw, rate: supplyRate, supplied: supplied, remain: remain,
-                    status: stText, ss: ssVal, dl: dlVal, memo: data && data.memo ? data.memo : ""
-                });
-            }
+            dashData.push({
+                id: index, name: blockName, type: blockType, area: finalArea,
+                kw: finalKw, rate: supplyRate, supplied: supplied, remain: remain,
+                status: stText, ss: ssVal, dl: dlVal, memo: data && data.memo ? data.memo : ""
+            });
             exportedBlocks.add(blockName);
         });
 
