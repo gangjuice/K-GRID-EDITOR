@@ -472,8 +472,6 @@
     <div id="splitRowsContainer"></div>
     <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
         <button class="btn" style="background:#e8f0fe; color:#1a73e8; border:1px solid #c6d4f9; font-size:12px;" onclick="addSplitRow('','')">+ 분할 추가</button>
-        <button class="btn" style="background:#fce8e6; color:#d93025; border:1px solid #f5c6c2; font-size:12px;" onclick="removeLastSplitRow()">- 마지막 삭제</button>
-        <button class="btn" style="background:#f1f3f4; color:#3c4043; border:1px solid #dadce0; font-size:12px;" onclick="duplicateLastSplitRow()">📋 복사 후 동일 생성</button>
     </div>
     <div class="calc-box" style="margin-top:12px;">
         <div class="calc-row"><span>합계 수요부하</span><span class="calc-val" id="splitTotalKw" style="color:#1a73e8; font-size:16px;">0 kW</span></div>
@@ -1981,7 +1979,13 @@
 
         // splitParcels 데이터 유지
         var existingData = getSafeData(currentEditingParcel);
-        if (existingData && existingData.splitParcels) data.splitParcels = existingData.splitParcels;
+        if (existingData && existingData.splitParcels) {
+            data.splitParcels = existingData.splitParcels;
+            // 분할 필지의 kW 합산값은 분할 모달에서만 수정 — 일반 저장 시 덮어쓰지 않음
+            var splitTotal = existingData.splitParcels.reduce(function(s, sp) { return s + (sp.loadKw || 0); }, 0);
+            data.loadKw = splitTotal;
+            data.manualKw = true;
+        }
 
         setSafeData(currentEditingParcel, data);
         map.data.setStyle(map.data.getStyle()); updateDatalists(); renderUnconfirmedList();
@@ -2019,6 +2023,17 @@
 
     function addSplitRow(name, kw) {
         var container = document.getElementById('splitRowsContainer');
+        if (!name && currentSplitParcel) {
+            var maxN = 0;
+            container.querySelectorAll('.split-name').forEach(function(inp) {
+                var prefix = currentSplitParcel + '-';
+                if (inp.value.startsWith(prefix)) {
+                    var n = parseInt(inp.value.slice(prefix.length));
+                    if (!isNaN(n) && n > maxN) maxN = n;
+                }
+            });
+            name = currentSplitParcel + '-' + (maxN + 1);
+        }
         var idx = container.children.length + 1;
         var div = document.createElement('div');
         div.className = 'split-row';
