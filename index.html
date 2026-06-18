@@ -677,19 +677,28 @@
     }
 
     function calculateAreaM2(coords) {
-        let area = 0; let R = 6378137;
-        function extractRing(c) {
-            if (!c || c.length === 0) return 0;
-            if (typeof c[0][0] === 'number') {
-                let ringArea = 0;
-                for (let i = 0; i < c.length - 1; i++) {
-                    let p1 = c[i], p2 = c[i+1];
-                    ringArea += (p2[0] - p1[0]) * (Math.PI/180) * (2 + Math.sin(p1[1]*Math.PI/180) + Math.sin(p2[1]*Math.PI/180));
-                }
-                return Math.abs(ringArea * R * R / 2.0);
-            } else { let total = 0; for(let i=0; i<c.length; i++) total += extractRing(c[i]); return total; }
+        const R = 6378137;
+        function ringArea(ring) {
+            if (!ring || ring.length < 3) return 0;
+            let a = 0;
+            for (let i = 0; i < ring.length - 1; i++) {
+                let p1 = ring[i], p2 = ring[i + 1];
+                a += (p2[0] - p1[0]) * (Math.PI / 180) * (2 + Math.sin(p1[1] * Math.PI / 180) + Math.sin(p2[1] * Math.PI / 180));
+            }
+            return Math.abs(a * R * R / 2.0);
         }
-        return extractRing(coords);
+        function polygonArea(rings) {
+            if (!rings || rings.length === 0) return 0;
+            // 첫 링: 외곽, 이후 링: 홀(빼기)
+            let a = ringArea(rings[0]);
+            for (let i = 1; i < rings.length; i++) a -= ringArea(rings[i]);
+            return Math.max(0, a);
+        }
+        if (!coords || coords.length === 0) return 0;
+        // Polygon: coords[0][0]이 숫자 → coords = [outerRing, hole, ...]
+        // MultiPolygon: coords[0][0][0]이 숫자 → coords = [polygon, polygon, ...]
+        if (typeof coords[0][0][0] === 'number') return polygonArea(coords);
+        return coords.reduce(function(sum, poly) { return sum + polygonArea(poly); }, 0);
     }
 
     function getGradientColor(rate) {
@@ -875,15 +884,17 @@
         let st = (data.status !== undefined) ? parseInt(data.status) : (isAutoNoLoad(blockType) ? 3 : 99);
         let statusText = (st === 1) ? "송전완료" : (st === 2 || st === 0) ? "미송전" : (st === 3) ? "무부하" : "미입력";
 
-        let calcArea = e.feature.getProperty('area') || e.feature.getProperty('면적') || e.feature.getProperty('SHAPE_Area') || 0;
-        if (!calcArea) {
-            try {
-                var geom = e.feature.getGeometry();
-                if (geom && geom.getType && geom.getType() === 'Polygon') {
-                    var coords = [geom.getAt(0).getArray().map(function(p){ return [p.lng(), p.lat()]; })];
-                    calcArea = calculateAreaM2(coords);
+        // globalGeoJson에서 피처를 직접 찾아 면적 계산 (Naver Maps 피처 객체 geometry 파싱 불가)
+        let calcArea = 0;
+        if (globalGeoJson && globalGeoJson.features) {
+            for (let gf of globalGeoJson.features) {
+                let gfName = gf.properties && (gf.properties.blockName || gf.properties.zoneName);
+                if (gfName === targetName) {
+                    let propArea = gf.properties.area || gf.properties.면적 || gf.properties.SHAPE_Area;
+                    calcArea = propArea ? parseFloat(propArea) : (gf.geometry && gf.geometry.coordinates ? calculateAreaM2(gf.geometry.coordinates) : 0);
+                    break;
                 }
-            } catch(ex) {}
+            }
         }
         calcArea = Math.round(calcArea || 0);
         let area = (data.customArea > 0) ? data.customArea : calcArea;
