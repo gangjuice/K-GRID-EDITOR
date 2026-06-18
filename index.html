@@ -212,7 +212,7 @@
 </header>
 
 <div class="toolbar">
-    <div id="btn-multi-select" class="tool-btn" onclick="toggleMultiSelectMode()" title="여러 필지를 클릭으로 동시에 선택하는 모드를 켜고 끕니다.">
+    <div id="btn-multi-select" class="tool-btn" onclick="toggleMultiSelectMode()" title="여러 필지를 동시에 선택합니다. (단축키: Ctrl+클릭으로 개별 추가, Shift+드래그로 범위 선택)">
         <span class="tool-icon" id="multi-select-icon">👆</span> <span id="multi-select-text">마우스 다중 선택: OFF</span>
     </div>
     <div id="btn-batch-update" class="tool-btn danger" onclick="openBatchModal()" title="선택한 필지들의 변전소·선로·상태를 한 번에 변경합니다.">
@@ -271,8 +271,8 @@
                     </tr>
                     <tr class="filter-row">
                         <th></th>
-                        <th><input type="text" class="filter-input" id="fltName" oninput="debouncedRenderDashboard()" placeholder="검색"></th>
-                        <th></th>
+                        <th><input type="text" class="filter-input" id="fltName" oninput="debouncedRenderDashboard()" placeholder="블럭명 검색"></th>
+                        <th><input type="text" class="filter-input" id="fltLot" oninput="debouncedRenderDashboard()" placeholder="로트명 검색"></th>
                         <th><select class="filter-input" id="fltTypeSelect" onchange="renderDashboard()"><option value="">전체보기</option></select></th>
                         <th></th><th></th><th></th><th></th><th></th>
                         <th>
@@ -314,6 +314,16 @@
 
     <!-- 대용량 도면: localStorage 저장 실패 시 표시되는 상시 경고 배지 -->
     <div id="geoSizeWarn" title="도면 용량이 커서 브라우저 임시저장이 불가합니다. 탭/모드 전환 시 도면을 다시 열어야 합니다." style="display:none; position:fixed; bottom:55px; right:20px; background:#fff8e1; color:#7c6a00; border:1px solid #f1c40f; padding:7px 14px; border-radius:18px; font-size:12px; font-weight:bold; z-index:9998; box-shadow:0 2px 8px rgba(0,0,0,0.1);">⚠️ 대용량 도면 — 탭 전환 시 재로딩 필요</div>
+
+    <!-- 다중 선택 플로팅 바 (선택 1개 이상일 때 표시) -->
+    <div id="selectionBar" style="display:none; position:fixed; bottom:58px; left:50%; transform:translateX(-50%); z-index:1600; background:#202124; color:#fff; border-radius:24px; padding:7px 8px 7px 18px; align-items:center; gap:10px; box-shadow:0 4px 18px rgba(0,0,0,0.28); font-size:13px;">
+        <span id="selectionBarCount" style="font-weight:bold; white-space:nowrap;">0개 선택됨</span>
+        <button onclick="openBatchModal()" title="선택 필지 일괄 변경" style="background:#d93025; color:#fff; border:none; border-radius:18px; padding:6px 14px; font-size:12px; font-weight:bold; cursor:pointer; white-space:nowrap;">✏️ 일괄 변경</button>
+        <button onclick="clearSelection()" title="선택 해제 (Esc)" style="background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:18px; padding:6px 12px; font-size:12px; cursor:pointer; white-space:nowrap;">✖ 해제</button>
+    </div>
+
+    <!-- 박스 선택 사각형 (Shift+드래그 시 표시) -->
+    <div id="boxSelectRect" style="display:none; position:fixed; border:1.5px dashed #1a73e8; background:rgba(26,115,232,0.12); z-index:1550; pointer-events:none;"></div>
 
     <!-- ★ 로트 개별 편집 패널 (좌클릭) -->
     <div id="lotPanelOverlay" onclick="closeLotPanel()" style="display:none; position:fixed; inset:0; z-index:2900;"></div>
@@ -1009,11 +1019,9 @@
                 layer.on('click', function(e) {
                     var blockType = getBlockType(feature.properties);
                     if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
-                    if (isMultiSelectMode) {
-                        if (selectedParcels.has(parcelId)) selectedParcels.delete(parcelId);
-                        else selectedParcels.add(parcelId);
-                        mapRefreshStyles();
-                        if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
+                    var ctrl = e.originalEvent && (e.originalEvent.ctrlKey || e.originalEvent.metaKey);
+                    if (ctrl || isMultiSelectMode) {
+                        toggleParcelSelection(parcelId);
                         return;
                     }
                     openLotPanel(parcelId, blockType);
@@ -1129,10 +1137,15 @@
                 return;
             }
             // 열려 있는 패널/모달 닫기
+            var anyPanelOpen = document.getElementById('lotPanel').style.display === 'flex'
+                || document.getElementById('blockBatchPanel').style.display === 'flex'
+                || document.getElementById('dashboardOverlay').style.display === 'flex';
             closeLotPanel();
             closeBlockBatchPanel();
             closeModals();
             if (document.getElementById('dashboardOverlay').style.display === 'flex') closeDashboard();
+            // 닫을 패널이 없는데 선택 항목이 있으면 선택 해제
+            if (!anyPanelOpen && selectedParcels.size > 0) clearSelection();
         }
     });
 
@@ -1351,6 +1364,7 @@
         if (btn) btn.classList.remove('active');
         if (icon) icon.innerText = "👆";
         if (text) text.innerText = "마우스 다중 선택: OFF";
+        updateSelectionUI();
     }
 
     // GeoJSON blockName → feature O(1) 인덱스
@@ -1641,6 +1655,15 @@
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
     }
 
+    // #11 단일 필지 블록 상태 인라인 변경 (대시보드 블록 행)
+    function updateBlockStatusInline(blockName, newStatusStr) {
+        var data = getSafeData(blockName) || {};
+        data.status = parseInt(newStatusStr);
+        setSafeData(blockName, data);
+        mapRefreshStyles(); renderUnconfirmedList();
+        if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
+    }
+
     function updateLotPanelSum() {
         var inputs = document.querySelectorAll('#lotPanelBody input[data-lot-idx]');
         var sum = 0;
@@ -1683,21 +1706,133 @@
 
     // ────────────────────────────────────────────────────────────────────────────
 
+    // ★ 선택 상태 공용 헬퍼
+    function toggleParcelSelection(parcelId) {
+        if (selectedParcels.has(parcelId)) selectedParcels.delete(parcelId);
+        else selectedParcels.add(parcelId);
+        mapRefreshStyles();
+        updateSelectionUI();
+        if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
+    }
+    function clearSelection() {
+        selectedParcels.clear();
+        mapRefreshStyles();
+        updateSelectionUI();
+        if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
+    }
+    // 선택 개수 배지 + 플로팅 바 갱신
+    function updateSelectionUI() {
+        var n = selectedParcels.size;
+        var text = document.getElementById('multi-select-text');
+        if (text) text.innerText = isMultiSelectMode
+            ? ('마우스 다중 선택: ON' + (n ? ' · ' + n + '개' : ''))
+            : '마우스 다중 선택: OFF';
+        var bar = document.getElementById('selectionBar');
+        if (bar) {
+            bar.style.display = n > 0 ? 'flex' : 'none';
+            if (n > 0) document.getElementById('selectionBarCount').innerText = n + '개 선택됨';
+        }
+    }
+
+    // ★ 박스 선택 (Shift+드래그) — Naver/Leaflet 공통
+    var _box = { active: false, sx: 0, sy: 0 };
+    function _containerPointToLatLng(x, y) {
+        // x,y: #map 컨테이너 좌상단 기준 좌표
+        if (useLeaflet) {
+            var ll = map.containerPointToLatLng(L.point(x, y));
+            return { lat: ll.lat, lng: ll.lng };
+        }
+        try {
+            var c = map.getProjection().fromOffsetToCoord(new naver.maps.Point(x, y));
+            var lat = (typeof c.lat === 'function') ? c.lat() : (c.y !== undefined ? c.y : c._lat);
+            var lng = (typeof c.lng === 'function') ? c.lng() : (c.x !== undefined ? c.x : c._lng);
+            return { lat: lat, lng: lng };
+        } catch (e) { return null; }
+    }
+    function _setMapDragging(enabled) {
+        if (useLeaflet) {
+            if (map.dragging) enabled ? map.dragging.enable() : map.dragging.disable();
+            if (map.boxZoom) map.boxZoom.disable(); // 기본 shift+drag 줌 비활성 (선택으로 재사용)
+        } else if (map && map.setOptions) {
+            map.setOptions({ draggable: enabled });
+        }
+    }
+    function initBoxSelect() {
+        var mapEl = document.getElementById('map');
+        if (!mapEl || mapEl._boxInit) return;
+        mapEl._boxInit = true;
+        mapEl.addEventListener('mousedown', function(ev) {
+            if (!globalGeoJson || ev.button !== 0 || !ev.shiftKey) return;
+            ev.preventDefault(); ev.stopPropagation();
+            _box.active = true;
+            _box.sx = ev.clientX; _box.sy = ev.clientY;
+            _setMapDragging(false);
+            var rect = document.getElementById('boxSelectRect');
+            rect.style.display = 'block';
+            rect.style.left = ev.clientX + 'px'; rect.style.top = ev.clientY + 'px';
+            rect.style.width = '0px'; rect.style.height = '0px';
+        }, true);
+        window.addEventListener('mousemove', function(ev) {
+            if (!_box.active) return;
+            var x = Math.min(ev.clientX, _box.sx), y = Math.min(ev.clientY, _box.sy);
+            var w = Math.abs(ev.clientX - _box.sx), h = Math.abs(ev.clientY - _box.sy);
+            var rect = document.getElementById('boxSelectRect');
+            rect.style.left = x + 'px'; rect.style.top = y + 'px';
+            rect.style.width = w + 'px'; rect.style.height = h + 'px';
+        });
+        window.addEventListener('mouseup', function(ev) {
+            if (!_box.active) return;
+            _box.active = false;
+            document.getElementById('boxSelectRect').style.display = 'none';
+            _setMapDragging(true);
+            var dx = Math.abs(ev.clientX - _box.sx), dy = Math.abs(ev.clientY - _box.sy);
+            if (dx < 5 && dy < 5) return; // 너무 작으면 클릭으로 간주
+            applyBoxSelect(_box.sx, _box.sy, ev.clientX, ev.clientY);
+        });
+    }
+    function applyBoxSelect(cx1, cy1, cx2, cy2) {
+        var mapEl = document.getElementById('map');
+        var box = mapEl.getBoundingClientRect();
+        // 화면(viewport) 좌표 → 컨테이너 상대 좌표
+        var p1 = _containerPointToLatLng(Math.min(cx1, cx2) - box.left, Math.min(cy1, cy2) - box.top);
+        var p2 = _containerPointToLatLng(Math.max(cx1, cx2) - box.left, Math.max(cy1, cy2) - box.top);
+        if (!p1 || !p2) return;
+        var latMin = Math.min(p1.lat, p2.lat), latMax = Math.max(p1.lat, p2.lat);
+        var lngMin = Math.min(p1.lng, p2.lng), lngMax = Math.max(p1.lng, p2.lng);
+        var added = 0;
+        (globalGeoJson.features || []).forEach(function(f) {
+            if (!f.properties || !f.geometry) return;
+            var blockType = getBlockType(f.properties);
+            if (isAutoNoLoad(blockType) && isNoLoadLocked) return; // 무부하 잠금 필지 제외
+            var parcelId = getBlockName(f.properties);
+            if (selectedParcels.has(parcelId)) return;
+            var ctr = getVisualCentroid(f.geometry.coordinates);
+            if (!ctr) return;
+            if (ctr.lat >= latMin && ctr.lat <= latMax && ctr.lng >= lngMin && ctr.lng <= lngMax) {
+                selectedParcels.add(parcelId); added++;
+            }
+        });
+        if (added > 0) {
+            mapRefreshStyles();
+            updateSelectionUI();
+            if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
+        }
+    }
+
     // ★ 툴바 다중 선택 버튼 로직
     function toggleMultiSelectMode() {
         isMultiSelectMode = !isMultiSelectMode;
         let btn = document.getElementById('btn-multi-select');
         let icon = document.getElementById('multi-select-icon');
-        let text = document.getElementById('multi-select-text');
 
         if (isMultiSelectMode) {
             btn.classList.add('active');
-            icon.innerText = "🔴"; text.innerText = "마우스 다중 선택: ON";
+            icon.innerText = "🔴";
+            updateSelectionUI();
         } else {
             btn.classList.remove('active');
-            icon.innerText = "👆"; text.innerText = "마우스 다중 선택: OFF";
-            selectedParcels.clear(); mapRefreshStyles(); 
-            if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
+            icon.innerText = "👆";
+            clearSelection(); // 모드 종료 시 선택 해제
         }
     }
 
@@ -1868,11 +2003,10 @@
 
         if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
 
-        if (isMultiSelectMode) {
-            if (selectedParcels.has(parcelId)) selectedParcels.delete(parcelId);
-            else selectedParcels.add(parcelId);
-            mapRefreshStyles();
-            if (document.getElementById('dashboardOverlay').style.display === 'flex') renderDashboard();
+        var oe = e.domEvent || e.pointerEvent;
+        var ctrl = oe && (oe.ctrlKey || oe.metaKey);
+        if (ctrl || isMultiSelectMode) {
+            toggleParcelSelection(parcelId);
             return;
         }
 
@@ -2184,12 +2318,12 @@
             if(el.checked) selectedParcels.add(chk.value);
             else selectedParcels.delete(chk.value);
         });
-        mapRefreshStyles(); renderDashboard();
+        mapRefreshStyles(); updateSelectionUI(); renderDashboard();
     }
 
     function toggleParcelSel(bName, isChecked) {
         if (isChecked) selectedParcels.add(bName); else selectedParcels.delete(bName);
-        mapRefreshStyles(); renderDashboard();
+        mapRefreshStyles(); updateSelectionUI(); renderDashboard();
     }
 
     var buildAndRenderDashboard = debounce(function buildAndRenderDashboardImpl() {
@@ -2247,7 +2381,7 @@
             // 로트 rows 구성 (대시보드 드롭다운용)
             var lotRows = lots.map(function(lot) {
                 var d = getLotData(blockName, lot.lotName);
-                var lotSt = (d.status !== undefined) ? parseInt(d.status) : (isAutoNoLoad(blockType) ? 3 : 99);
+                var lotSt = (d.status !== undefined) ? parseInt(d.status) : (isAutoNoLoad(blockType) ? STATUS.NOLOAD : STATUS.NONE);
                 var lotArea = (d.customArea > 0) ? d.customArea : lot.area;
                 var lotKw = (d.loadKw !== null && d.loadKw !== undefined)
                     ? (parseFloat(d.loadKw) || 0) : 0;
@@ -2296,6 +2430,7 @@
 
     function resetDashFilters() {
         document.getElementById('fltName').value = '';
+        if (document.getElementById('fltLot')) document.getElementById('fltLot').value = '';
         document.getElementById('fltTypeSelect').value = '';
         document.getElementById('fltStatus').value = '';
         document.getElementById('fltSsSelect').value = '';
@@ -2319,13 +2454,21 @@
     function renderDashboard() {
         if (!globalGeoJson || dashData.length === 0) return;
         let fltName = document.getElementById('fltName').value.toLowerCase();
+        let fltLotEl = document.getElementById('fltLot');
+        let fltLot = fltLotEl ? fltLotEl.value.toLowerCase().trim() : '';
         let fltType = document.getElementById('fltTypeSelect').value;
         let fltStatus = document.getElementById('fltStatus').value;
         let fltSs = document.getElementById('fltSsSelect').value;
         let fltDl = document.getElementById('fltDlSelect').value;
 
         let filtered = dashData.filter(d => {
-            return d.name.toLowerCase().includes(fltName) &&
+            // 로트명 필터: 해당 블록의 로트 중 검색어 포함 로트가 있어야 통과
+            let lotMatch = true;
+            if (fltLot !== '') {
+                let lots = blockLotsIndex.get(d.name) || [];
+                lotMatch = lots.some(l => (l.lotName || '').toLowerCase().includes(fltLot));
+            }
+            return d.name.toLowerCase().includes(fltName) && lotMatch &&
                    (fltType === "" || d.type === fltType) &&
                    (fltStatus === "" || d.status === fltStatus) &&
                    (fltSs === "" || d.ss === fltSs) &&
@@ -2352,7 +2495,7 @@
             });
             let isSel = selectedParcels.has(d.name);
             let lotCount = lots.length;
-            let isExpanded = expandedBlocks.has(d.name);
+            let isExpanded = expandedBlocks.has(d.name) || (fltLot !== '' && lotCount > 0); // 로트 검색 시 자동 펼침
             let safeN = jsArg(d.name);
             let nEsc = escapeHtml(d.name);
             let expandArrow = lotCount > 0
@@ -2360,16 +2503,29 @@
                 : '';
             let lotCountLabel = lotCount > 1 ? `<span style="font-size:10px; color:#9aa0a6; margin-left:4px;">(${lotCount}로트)</span>` : '';
             let blockClickHandler = lotCount > 0 ? `onclick="event.stopPropagation(); toggleLotDrilldown('${safeN}')"` : '';
+            // #11 단일 필지 블록은 상태를 인라인 편집(드롭다운), 다중 로트는 집계 배지 유지
+            let statusCell;
+            if (lotCount === 0) {
+                let bSt = getBlockStatus(d.name);
+                statusCell = `<td><select onclick="event.stopPropagation();" onchange="updateBlockStatusInline('${safeN}', this.value)" style="font-size:11px;border-radius:4px;padding:2px 4px;border:1px solid #dadce0;cursor:pointer;background:${bSt===STATUS.DONE?'#e8f0fe':bSt===STATUS.PENDING?'#fce8e6':bSt===STATUS.NOLOAD?'#f8f9fa':'#fff8e1'};color:${bSt===STATUS.DONE?'#1a73e8':bSt===STATUS.PENDING?'#d93025':bSt===STATUS.NOLOAD?'#5f6368':'#f9ab00'};">
+                    <option value="99" ${bSt===STATUS.NONE?'selected':''}>미입력</option>
+                    <option value="1" ${bSt===STATUS.DONE?'selected':''}>송전완료</option>
+                    <option value="2" ${bSt===STATUS.PENDING?'selected':''}>미송전</option>
+                    <option value="3" ${bSt===STATUS.NOLOAD?'selected':''}>무부하</option>
+                </select></td>`;
+            } else {
+                statusCell = `<td><span class="badge ${getBadgeClass(d.status)}">${d.status}</span></td>`;
+            }
             html += `<tr class="${isSel?'selected':''}" data-block-row="${nEsc}" ondblclick="jumpFromDash('${safeN}')">
                 <td style="text-align:center;"><input type="checkbox" class="dash-chk row-chk" value="${nEsc}" ${isSel?'checked':''} onclick="event.stopPropagation();" onchange="toggleParcelSel('${safeN}', this.checked)"></td>
                 <td style="font-weight:bold; cursor:${lotCount>0?'pointer':'default'}; white-space:nowrap;" ${blockClickHandler}>${expandArrow}${nEsc}${lotCountLabel}</td>
                 <td style="color:#5f6368; font-size:11px;"></td>
                 <td>${escapeHtml(d.type)}</td>
-                <td>${d.area.toLocaleString()}</td><td>${d.kw.toLocaleString()}</td>
-                <td>${d.rate}%</td>
-                <td style="color:#1a73e8;">${d.supplied.toLocaleString(undefined,{maximumFractionDigits:1})}</td>
-                <td style="color:#d93025; font-weight:bold;">${d.remain.toLocaleString(undefined,{maximumFractionDigits:1})}</td>
-                <td><span class="badge ${getBadgeClass(d.status)}">${d.status}</span></td>
+                <td style="text-align:right;">${d.area.toLocaleString()}</td><td style="text-align:right;">${d.kw.toLocaleString()}</td>
+                <td style="text-align:right;">${d.rate}%</td>
+                <td style="color:#1a73e8; text-align:right;">${d.supplied.toLocaleString(undefined,{maximumFractionDigits:1})}</td>
+                <td style="color:#d93025; font-weight:bold; text-align:right;">${d.remain.toLocaleString(undefined,{maximumFractionDigits:1})}</td>
+                ${statusCell}
                 <td>${escapeHtml(d.ss)}</td><td>${escapeHtml(d.dl)}</td><td style="font-size:11px; max-width:150px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(d.memo)}">${escapeHtml(d.memo)}</td>
             </tr>`;
 
@@ -2377,6 +2533,8 @@
             if (isExpanded && lotCount > 0) {
                 var supplyRate = getBlockSupplyRate(d.name);
                 lots.forEach(function(lot) {
+                    // 로트명 검색 시 검색어와 일치하는 로트만 표시
+                    if (fltLot !== '' && !((lot.lotName || '').toLowerCase().includes(fltLot))) return;
                     var ld = getLotData(d.name, lot.lotName);
                     var bt = lot.feature ? (lot.feature.properties.blockType || d.type) : d.type;
                     var area = (ld.customArea > 0) ? ld.customArea : lot.area;
@@ -2410,15 +2568,20 @@
             }
         });
 
-        html += `<tr style="background:#f1f3f4; font-weight:bold; position:sticky; bottom:0; border-top:2px solid #dadce0; z-index:5;">
-            <td colspan="4" style="text-align:center; color:#202124;">∑ 합계 (필터 연동 기준)</td>
-            <td style="color:#1a73e8;">${sumArea.toLocaleString()} m²</td>
-            <td style="color:#1a73e8;">${sumKw.toLocaleString()} kW</td>
-            <td style="color:#9aa0a6;">-</td>
-            <td style="color:#1a73e8;">${sumSupplied.toLocaleString(undefined,{maximumFractionDigits:1})} kW</td>
-            <td style="color:#d93025;">${sumRemain.toLocaleString(undefined,{maximumFractionDigits:1})} kW</td>
-            <td colspan="4" style="background:#f1f3f4;"></td>
-        </tr>`;
+        if (filtered.length === 0) {
+            // 필터 결과 없음 안내
+            html = `<tr><td colspan="13" style="text-align:center; padding:40px 10px; color:#9aa0a6; font-size:14px;">🔍 조건에 맞는 필지가 없습니다. <span style="color:#1a73e8; cursor:pointer; text-decoration:underline;" onclick="resetDashFilters()">필터 초기화</span></td></tr>`;
+        } else {
+            html += `<tr style="background:#f1f3f4; font-weight:bold; position:sticky; bottom:0; border-top:2px solid #dadce0; z-index:5;">
+                <td colspan="4" style="text-align:center; color:#202124;">∑ 합계 (필터 연동 기준)</td>
+                <td style="color:#1a73e8; text-align:right;">${sumArea.toLocaleString()} m²</td>
+                <td style="color:#1a73e8; text-align:right;">${sumKw.toLocaleString()} kW</td>
+                <td style="color:#9aa0a6; text-align:right;">-</td>
+                <td style="color:#1a73e8; text-align:right;">${sumSupplied.toLocaleString(undefined,{maximumFractionDigits:1})} kW</td>
+                <td style="color:#d93025; text-align:right;">${sumRemain.toLocaleString(undefined,{maximumFractionDigits:1})} kW</td>
+                <td colspan="4" style="background:#f1f3f4;"></td>
+            </tr>`;
+        }
 
         document.getElementById('dashBody').innerHTML = html;
         document.getElementById('dashCount').innerText = `(${filtered.length}건)`;
@@ -2434,6 +2597,7 @@
         var lKey = getLotKey(blockName, lotName);
         if (isChecked) selectedParcels.add(lKey); else selectedParcels.delete(lKey);
         mapRefreshStyles();
+        updateSelectionUI();
         renderDashboard();
     }
 
@@ -2975,6 +3139,7 @@
         let icon = document.getElementById('multi-select-icon');
         let text = document.getElementById('multi-select-text');
         isMultiSelectMode = false; btn.classList.remove('active'); icon.innerText = "👆"; text.innerText = "마우스 다중 선택: OFF";
+        updateSelectionUI();
         mapRefreshStyles(); updateDatalists(); renderUnconfirmedList();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
         if(viewMode === 'ss' || viewMode === 'dl') buildLegend(viewMode);
@@ -3449,6 +3614,8 @@
 
 
     renderWorkspaceTabs();
+    initBoxSelect();      // Shift+드래그 박스 선택 활성화
+    updateSelectionUI();  // 선택 바 초기화
 
 </script>
 </body>
