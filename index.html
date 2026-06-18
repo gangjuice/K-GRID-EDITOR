@@ -558,6 +558,7 @@
     var globalGeoJson = null;
     var blockOutlineGroup = null;
     var blockOutlinePolylines = [];
+    var blockOutlineCache = new Map();
     var isNormalMap = true;
     var isBgOn = true;
     var isPolygonVisible = true;
@@ -1190,7 +1191,7 @@
 
     function showBlockOutline(blockName) {
         hideBlockOutline();
-        var edges = computeBlockOuterEdges(blockName);
+        var edges = blockOutlineCache.get(blockName) || computeBlockOuterEdges(blockName);
         if (edges.length === 0) return;
         if (useLeaflet) {
             blockOutlineGroup = L.layerGroup().addTo(map);
@@ -1232,6 +1233,11 @@
             lots.push({ lotName, feature: f, area });
             blockLotsIndex.set(name, lots);
         });
+        // 외곽선 캐시 미리 계산 (hover 시 즉시 사용)
+        blockOutlineCache.clear();
+        blockLotsIndex.forEach(function(_, blockName) {
+            blockOutlineCache.set(blockName, computeBlockOuterEdges(blockName));
+        });
     }
 
     // ★ Lot 패널
@@ -1242,8 +1248,6 @@
         lotPanelBlockName = blockName;
         lotPanelBlockType = blockType || (featureIndex.get(blockName) ? (featureIndex.get(blockName).properties.blockType || '미상') : '미상');
         var lots = (blockLotsIndex.get(blockName) || []).slice().sort(function(a, b) {
-            var na = parseFloat(a.lotName), nb = parseFloat(b.lotName);
-            if (!isNaN(na) && !isNaN(nb)) return na - nb;
             return (a.lotName || '').localeCompare(b.lotName || '', undefined, { numeric: true, sensitivity: 'base' });
         });
         var totalKw = getBlockTotalKw(blockName);
