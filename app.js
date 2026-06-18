@@ -134,32 +134,10 @@
         // 앱 시작 시 자동 복구 제거 — 사용자가 직접 파일을 열어야 함
     }
 
-    function detectNetworkAndInitMap() {
-        var resolved = false;
-        var timer = setTimeout(function() { finish(true); }, 4000);
-
-        function finish(leaflet) {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(timer);
-            useLeaflet = leaflet;
-            try {
-                initMapAndStart();
-            } catch(e) {
-                console.error('지도 초기화 오류:', e);
-            } finally {
-                document.getElementById('mapLoadingOverlay').style.display = 'none';
-            }
-        }
-
-        var s = document.createElement('script');
-        s.onload = function() { finish(false); };
-        s.onerror = function() { finish(true); };
-        s.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=cr5pcd8cee';
-        document.head.appendChild(s);
-    }
-
-    detectNetworkAndInitMap();
+    // Leaflet 고정 (사내망 환경 기본값)
+    useLeaflet = true;
+    document.getElementById('mapLoadingOverlay').style.display = 'none';
+    initMapAndStart();
 
     // ★ 지도 추상화 함수 (Naver/Leaflet 공통 인터페이스)
     function showAlert(msg, onOk) {
