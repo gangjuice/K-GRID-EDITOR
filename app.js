@@ -136,15 +136,22 @@
 
     function detectNetworkAndInitMap() {
         var resolved = false;
+        var timer = setTimeout(function() { finish(true); }, 4000);
+
         function finish(leaflet) {
             if (resolved) return;
             resolved = true;
             clearTimeout(timer);
             useLeaflet = leaflet;
-            document.getElementById('mapLoadingOverlay').style.display = 'none';
-            initMapAndStart();
+            try {
+                initMapAndStart();
+            } catch(e) {
+                console.error('지도 초기화 오류:', e);
+            } finally {
+                document.getElementById('mapLoadingOverlay').style.display = 'none';
+            }
         }
-        var timer = setTimeout(function() { finish(true); }, 4000);
+
         var s = document.createElement('script');
         s.onload = function() { finish(false); };
         s.onerror = function() { finish(true); };
