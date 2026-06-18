@@ -23,5 +23,5 @@
   "portable": {
     "artifactName": "K-GRID-EDITOR-사내망-v${version}.exe"
   },
-  "asar": true
+  "asar": false
 }
