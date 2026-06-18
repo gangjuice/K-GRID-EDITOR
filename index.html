@@ -1189,30 +1189,40 @@
         return outerEdges;
     }
 
+    var _outlineTimer = null;
+
     function showBlockOutline(blockName) {
-        hideBlockOutline();
-        var edges = blockOutlineCache.get(blockName) || computeBlockOuterEdges(blockName);
-        if (edges.length === 0) return;
-        if (useLeaflet) {
-            blockOutlineGroup = L.layerGroup().addTo(map);
-            edges.forEach(function(edge) {
-                L.polyline(
-                    edge.map(function(p) { return [p[1], p[0]]; }),
-                    { color: '#e53935', weight: 5, opacity: 0.92, interactive: false }
-                ).addTo(blockOutlineGroup);
-            });
-        } else {
-            edges.forEach(function(edge) {
+        if (_outlineTimer) { clearTimeout(_outlineTimer); _outlineTimer = null; }
+        _outlineTimer = setTimeout(function() {
+            _outlineTimer = null;
+            hideBlockOutline();
+            var edges = blockOutlineCache.get(blockName) || computeBlockOuterEdges(blockName);
+            if (edges.length === 0) return;
+            if (useLeaflet) {
+                // 모든 엣지를 배열의 배열로 → L.polyline 1개(SVG 요소 1개)로 통합
+                var segments = edges.map(function(edge) {
+                    return edge.map(function(p) { return [p[1], p[0]]; });
+                });
+                blockOutlineGroup = L.polyline(segments, {
+                    color: '#e53935', weight: 5, opacity: 0.92, interactive: false
+                }).addTo(map);
+            } else {
+                // Naver: 엣지들을 연결 가능한 링으로 이어붙여 Polyline 수 최소화
                 var pl = new naver.maps.Polyline({
-                    path: edge.map(function(p) { return new naver.maps.LatLng(p[1], p[0]); }),
+                    path: edges.reduce(function(arr, edge) {
+                        arr.push(new naver.maps.LatLng(edge[0][1], edge[0][0]));
+                        arr.push(new naver.maps.LatLng(edge[1][1], edge[1][0]));
+                        return arr;
+                    }, []),
                     strokeColor: '#e53935', strokeWeight: 5, strokeOpacity: 0.92, map: map
                 });
                 blockOutlinePolylines.push(pl);
-            });
-        }
+            }
+        }, 80);
     }
 
     function hideBlockOutline() {
+        if (_outlineTimer) { clearTimeout(_outlineTimer); _outlineTimer = null; }
         if (blockOutlineGroup) { map.removeLayer(blockOutlineGroup); blockOutlineGroup = null; }
         blockOutlinePolylines.forEach(function(pl) { pl.setMap(null); });
         blockOutlinePolylines = [];
