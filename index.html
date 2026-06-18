@@ -349,7 +349,11 @@
 <div class="modal-box" id="typeSettingsModal" style="width: 500px; max-height: 80vh; overflow-y: auto;">
     <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #dadce0; padding-bottom:12px;">
         <span>⚡ 단위 면적당 수요전력 설정</span>
-        <button class="btn btn-save" style="padding:6px 12px; font-size:12px; background:#1a73e8;" onclick="openAddTypeModal()">➕ 유형 추가</button>
+        <div style="display:flex; gap:6px;">
+            <button class="btn btn-save" style="padding:6px 12px; font-size:12px; background:#1a73e8;" onclick="openAddTypeModal()">➕ 유형 추가</button>
+            <button class="btn" style="padding:6px 12px; font-size:12px; background:#f1f3f4; color:#3c4043; border:1px solid #dadce0;" onclick="openSavePresetModal()">💾 세트 저장</button>
+            <button class="btn" style="padding:6px 12px; font-size:12px; background:#f1f3f4; color:#3c4043; border:1px solid #dadce0;" onclick="openLoadPresetModal()">📂 불러오기</button>
+        </div>
     </div>
     <div style="font-size:12px; color:#5f6368; margin-top:15px; margin-bottom:15px; padding-left:5px; background:#f8f9fa; padding:10px; border-radius:6px; border:1px solid #dadce0;">
         ※ 이 표에서 <b>단위 부하가 0으로 지정된 용도</b>는 시스템에서 무부하 구간으로 분류됩니다.
@@ -377,6 +381,28 @@
     <div class="modal-btn-wrap" style="justify-content:flex-end;">
         <button class="btn btn-cancel" onclick="closeAddTypeModal()">취소</button>
         <button class="btn btn-save" onclick="addNewType()">✓ 추가</button>
+    </div>
+</div>
+
+<!-- 세트 저장 모달 -->
+<div class="modal-overlay" id="savePresetOverlay" onclick="closeSavePresetModal()" style="z-index:3150;"></div>
+<div class="modal-box" id="savePresetModal" style="width:340px; z-index:3200; display:none;">
+    <div class="modal-header">💾 유형 세트 저장</div>
+    <label class="modal-label">세트 이름</label>
+    <input type="text" id="presetNameInput" class="modal-input" placeholder="예: 세종시 LH 표준" style="margin-bottom:10px;">
+    <div class="modal-btn-wrap" style="justify-content:flex-end;">
+        <button class="btn btn-cancel" onclick="closeSavePresetModal()">취소</button>
+        <button class="btn btn-save" onclick="confirmSavePreset()">저장</button>
+    </div>
+</div>
+
+<!-- 세트 불러오기 모달 -->
+<div class="modal-overlay" id="loadPresetOverlay" onclick="closeLoadPresetModal()" style="z-index:3150;"></div>
+<div class="modal-box" id="loadPresetModal" style="width:420px; max-height:70vh; overflow-y:auto; z-index:3200; display:none;">
+    <div class="modal-header">📂 유형 세트 불러오기</div>
+    <div id="presetListContainer" style="margin-top:12px;"></div>
+    <div class="modal-btn-wrap" style="justify-content:flex-end; margin-top:12px;">
+        <button class="btn btn-cancel" onclick="closeLoadPresetModal()">닫기</button>
     </div>
 </div>
 
@@ -599,6 +625,21 @@
         getTileUrl: function() { return "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"; }
     });
     map.mapTypes.set('blank', BlankMapType);
+
+    // 앱 시작 시 글로벌 파일에서 설정 로드 (localStorage 기본값 위에 덮어씀)
+    fetch('/api/load-rate-settings')
+        .then(r => r.json())
+        .then(function(fileData) {
+            if (!fileData || !fileData.current || Object.keys(fileData.current).length === 0) return;
+            for (let key in fileData.current) {
+                localStorage.setItem('rate_' + key, fileData.current[key]);
+                let input = document.querySelector('.conf-rate[data-key="' + key + '"]');
+                if (input) input.value = fileData.current[key];
+            }
+            loadSettings();
+            map.data.setStyle(map.data.getStyle());
+        })
+        .catch(function() {});
 
     function getSafeData(parcelId) {
         var raw = localStorage.getItem(currentProject + '_parcel_' + parcelId);
@@ -1779,9 +1820,126 @@
     }
 
     function saveTypeSettings() {
-        document.querySelectorAll('.conf-rate').forEach(input => { localStorage.setItem('rate_' + input.getAttribute('data-key'), input.value); });
+        let current = {};
+        document.querySelectorAll('.conf-rate').forEach(input => {
+            let key = input.getAttribute('data-key');
+            let val = parseFloat(input.value) || 0;
+            localStorage.setItem('rate_' + key, val);
+            current[key] = val;
+        });
+        // 글로벌 파일에도 저장 (presets는 유지)
+        fetch('/api/load-rate-settings')
+            .then(r => r.json())
+            .then(function(fileData) {
+                fileData.current = current;
+                return fetch('/api/save-rate-settings', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(fileData)
+                });
+            })
+            .catch(function() {});
         loadSettings(); map.data.setStyle(map.data.getStyle()); renderUnconfirmedList(); closeModals();
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
+    }
+
+    function openSavePresetModal() {
+        document.getElementById('presetNameInput').value = '';
+        document.getElementById('savePresetOverlay').style.display = 'block';
+        document.getElementById('savePresetModal').style.display = 'block';
+        setTimeout(function() { document.getElementById('presetNameInput').focus(); }, 50);
+    }
+    function closeSavePresetModal() {
+        document.getElementById('savePresetOverlay').style.display = 'none';
+        document.getElementById('savePresetModal').style.display = 'none';
+    }
+    function confirmSavePreset() {
+        let name = document.getElementById('presetNameInput').value.trim();
+        if (!name) { alert('세트 이름을 입력해주세요.'); return; }
+        let current = {};
+        document.querySelectorAll('.conf-rate').forEach(function(input) {
+            current[input.getAttribute('data-key')] = parseFloat(input.value) || 0;
+        });
+        fetch('/api/load-rate-settings')
+            .then(r => r.json())
+            .then(function(fileData) {
+                if (!fileData.presets) fileData.presets = {};
+                fileData.presets[name] = current;
+                return fetch('/api/save-rate-settings', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(fileData)
+                });
+            })
+            .then(function() { closeSavePresetModal(); alert("'" + name + "' 세트가 저장되었습니다."); })
+            .catch(function() { alert('저장에 실패했습니다.'); });
+    }
+
+    function openLoadPresetModal() {
+        fetch('/api/load-rate-settings')
+            .then(r => r.json())
+            .then(function(fileData) {
+                let presets = fileData.presets || {};
+                let keys = Object.keys(presets);
+                let container = document.getElementById('presetListContainer');
+                if (keys.length === 0) {
+                    container.innerHTML = '<div style="color:#5f6368; font-size:13px; text-align:center; padding:20px;">저장된 세트가 없습니다.</div>';
+                } else {
+                    container.innerHTML = keys.map(function(n) {
+                        let escaped = n.replace(/'/g, "\\'");
+                        return '<div style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border:1px solid #dadce0; border-radius:6px; margin-bottom:8px;">' +
+                            '<span style="font-size:13px; font-weight:500;">' + n + '</span>' +
+                            '<div style="display:flex; gap:6px;">' +
+                            '<button class="btn btn-save" style="padding:4px 12px; font-size:12px;" onclick="applyPreset(\'' + escaped + '\')">적용</button>' +
+                            '<button class="btn" style="padding:4px 12px; font-size:12px; background:#fce8e6; color:#d93025; border:1px solid #f5c6c2;" onclick="deletePreset(\'' + escaped + '\')">삭제</button>' +
+                            '</div></div>';
+                    }).join('');
+                }
+                document.getElementById('loadPresetOverlay').style.display = 'block';
+                document.getElementById('loadPresetModal').style.display = 'block';
+            })
+            .catch(function() { alert('불러오기에 실패했습니다.'); });
+    }
+    function closeLoadPresetModal() {
+        document.getElementById('loadPresetOverlay').style.display = 'none';
+        document.getElementById('loadPresetModal').style.display = 'none';
+    }
+    function applyPreset(name) {
+        fetch('/api/load-rate-settings')
+            .then(r => r.json())
+            .then(function(fileData) {
+                let preset = fileData.presets && fileData.presets[name];
+                if (!preset) { alert('세트를 찾을 수 없습니다.'); return; }
+                for (let key in preset) {
+                    localStorage.setItem('rate_' + key, preset[key]);
+                    let input = document.querySelector('.conf-rate[data-key="' + key + '"]');
+                    if (input) input.value = preset[key];
+                }
+                fileData.current = preset;
+                fetch('/api/save-rate-settings', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(fileData)
+                });
+                loadSettings();
+                map.data.setStyle(map.data.getStyle());
+                if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
+                closeLoadPresetModal();
+                closeModals();
+                alert("'" + name + "' 세트가 적용되었습니다.");
+            })
+            .catch(function() { alert('적용에 실패했습니다.'); });
+    }
+    function deletePreset(name) {
+        if (!confirm("'" + name + "' 세트를 삭제하시겠습니까?")) return;
+        fetch('/api/load-rate-settings')
+            .then(r => r.json())
+            .then(function(fileData) {
+                if (fileData.presets) delete fileData.presets[name];
+                return fetch('/api/save-rate-settings', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(fileData)
+                });
+            })
+            .then(function() { openLoadPresetModal(); })
+            .catch(function() { alert('삭제에 실패했습니다.'); });
     }
     
     function saveBatchData() {

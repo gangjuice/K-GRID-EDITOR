@@ -49,6 +49,30 @@ server.get("/api/load-data/:projectName", (req, res) => {
     }
 });
 
+// 글로벌 수요전력 설정 로드 API
+server.get("/api/load-rate-settings", (req, res) => {
+    try {
+        if (!dataDir) return res.json({ current: {}, presets: {} });
+        const filePath = path.join(dataDir, "_rate_settings.json");
+        if (!fs.existsSync(filePath)) return res.json({ current: {}, presets: {} });
+        res.json(JSON.parse(fs.readFileSync(filePath, "utf-8")));
+    } catch (err) {
+        res.json({ current: {}, presets: {} });
+    }
+});
+
+// 글로벌 수요전력 설정 저장 API
+server.post("/api/save-rate-settings", (req, res) => {
+    try {
+        if (!dataDir) return res.status(400).json({ error: "초기화 중" });
+        const filePath = path.join(dataDir, "_rate_settings.json");
+        fs.writeFileSync(filePath, JSON.stringify(req.body, null, 2), "utf-8");
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 프로젝트 데이터 초기화 API
 server.post("/api/clear-data/:projectName", (req, res) => {
     try {
