@@ -674,6 +674,9 @@
     function initMapAndStart() {
         if (useLeaflet) {
             map = L.map('map', { center: [37.056, 127.048], zoom: 14 });
+            map.createPane('blockHighlight');
+            map.getPane('blockHighlight').style.zIndex = 399; // overlayPane(400) 아래
+            map.getPane('blockHighlight').style.pointerEvents = 'none';
             var ni = document.getElementById('networkModeIndicator');
             if (ni) { ni.innerText = '📴 오프라인(사내망)'; ni.style.color = '#d93025'; ni.style.background = '#fce8e6'; }
             // Leaflet 이벤트는 renderLeafletLayer()에서 처리
@@ -1196,27 +1199,24 @@
         _outlineTimer = setTimeout(function() {
             _outlineTimer = null;
             hideBlockOutline();
-            var edges = blockOutlineCache.get(blockName) || computeBlockOuterEdges(blockName);
-            if (edges.length === 0) return;
+            var lots = blockLotsIndex.get(blockName) || [];
+            if (lots.length === 0) return;
             if (useLeaflet) {
-                // 모든 엣지를 배열의 배열로 → L.polyline 1개(SVG 요소 1개)로 통합
-                var segments = edges.map(function(edge) {
-                    return edge.map(function(p) { return [p[1], p[0]]; });
-                });
-                blockOutlineGroup = L.polyline(segments, {
-                    color: '#e53935', weight: 5, opacity: 0.92, interactive: false
-                }).addTo(map);
+                // blockHighlight pane(zIndex 399)에 굵은 선으로 렌더 → overlayPane(400)의 노란 fill이 내부를 덮어 외곽만 노출
+                blockOutlineGroup = L.geoJSON(
+                    { type: 'FeatureCollection', features: lots.map(function(l) { return l.feature; }) },
+                    {
+                        style: function() { return { weight: 10, color: '#e53935', opacity: 0.9, fill: false, interactive: false }; },
+                        pane: 'blockHighlight'
+                    }
+                ).addTo(map);
             } else {
-                // Naver: 엣지들을 연결 가능한 링으로 이어붙여 Polyline 수 최소화
-                var pl = new naver.maps.Polyline({
-                    path: edges.reduce(function(arr, edge) {
-                        arr.push(new naver.maps.LatLng(edge[0][1], edge[0][0]));
-                        arr.push(new naver.maps.LatLng(edge[1][1], edge[1][0]));
-                        return arr;
-                    }, []),
-                    strokeColor: '#e53935', strokeWeight: 5, strokeOpacity: 0.92, map: map
+                // Naver: 블록 내 모든 피처에 빨간 외곽선 override
+                map.data.getAllFeature().forEach(function(f) {
+                    if ((f.getProperty('blockName') || f.getProperty('zoneName')) === blockName) {
+                        map.data.overrideStyle(f, { strokeWeight: 5, strokeColor: '#e53935', strokeOpacity: 0.9 });
+                    }
                 });
-                blockOutlinePolylines.push(pl);
             }
         }, 80);
     }
@@ -1512,22 +1512,22 @@
         `;
         document.getElementById('briefingOverlay').style.display = 'block';
 
-        // ① 로트 하이라이트: 호버된 lot만 주황 강조
+        // ① 로트 하이라이트 + ② 블록 외곽선을 한 번에 처리 (Naver는 overrideStyle로 통합)
         map.data.getAllFeature().forEach(function(f) {
             var fBlock = f.getProperty('blockName') || f.getProperty('zoneName');
             if (fBlock !== blockName) return;
             var fLot = f.getProperty('lotName') || "";
             if (fLot === lotName) {
                 map.data.overrideStyle(f, {
-                    strokeWeight: 3, strokeColor: '#ff6d00',
+                    strokeWeight: 4, strokeColor: '#ff6d00',
                     fillOpacity: Math.min((1 - globalOpacity / 100) + 0.35, 0.95)
                 });
             } else {
-                map.data.revertStyle(f);
+                map.data.overrideStyle(f, { strokeWeight: 3, strokeColor: '#e53935', strokeOpacity: 0.9 });
             }
         });
-        // ② 블록 하이라이트: 외곽 경계선 (공유 엣지 제거)
-        showBlockOutline(blockName);
+        // Leaflet은 pane 레이어로 블록 외곽선 별도 처리
+        if (useLeaflet) showBlockOutline(blockName);
     }
 
     function naverMouseoutHandler(e) {
@@ -1536,7 +1536,9 @@
         document.getElementById('briefingOverlay').style.display = 'none';
         hideBlockOutline();
         map.data.getAllFeature().forEach(function(f) {
-            if ((f.getProperty('blockName') || f.getProperty('zoneName')) === blockName) map.data.revertStyle(f);
+            if ((f.getProperty('blockName') || f.getProperty('zoneName')) === blockName) {
+                map.data.revertStyle(f);
+            }
         });
     }
 
