@@ -406,8 +406,9 @@
                 </label>
             </div>
             <div id="lotBatchPreview" style="font-size:11px; color:#5f6368; min-height:16px; margin-bottom:10px;"></div>
-            <div style="display:flex; gap:8px; justify-content:flex-end;">
-                <button onclick="applyLotBatch()" style="font-size:13px; background:#e65100; color:#fff; border:none; border-radius:6px; padding:7px 18px; cursor:pointer; font-weight:600;">▶ 일괄 적용</button>
+            <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+                <button onclick="distributeLotKw()" style="font-size:13px; background:#1a73e8; color:#fff; border:none; border-radius:6px; padding:7px 16px; cursor:pointer; font-weight:600;" title="블록 전체 수요전력을 면적비례로 각 로트에 배분 (공급률 제외)">⊞ kW 배분</button>
+                <button onclick="applyLotBatch()" style="font-size:13px; background:#e65100; color:#fff; border:none; border-radius:6px; padding:7px 18px; cursor:pointer; font-weight:600;" title="공급률·상태·변전소·선로를 전체 로트에 일괄 적용">▶ 일괄 적용</button>
                 <button onclick="closeBlockBatchPanel()" style="font-size:13px; background:#f1f3f4; color:#3c4043; border:none; border-radius:6px; padding:7px 14px; cursor:pointer;">✖ 닫기</button>
             </div>
         </div>
@@ -1211,25 +1212,26 @@
 
     function getBlockTotalKw(blockName) {
         var lots = blockLotsIndex.get(blockName);
+        var blockData = getSafeData(blockName) || {};
         if (!lots || lots.length === 0) {
-            var data = getSafeData(blockName) || {};
             var f = featureIndex.get(blockName);
             if (!f) return 0;
-            var bt = f.properties.blockType || '미상';
-            var area = (data.customArea > 0) ? data.customArea : Math.round(blockAreaCache[blockName] || 0);
-            if (data.loadKw !== null && data.loadKw !== undefined) return parseFloat(data.loadKw) || 0;
+            if (blockData.loadKw !== null && blockData.loadKw !== undefined) return parseFloat(blockData.loadKw) || 0;
             return 0;
         }
-        var total = 0;
+        // 로트별 loadKw가 하나라도 있으면 합산이 우선 (배분 후 개별수정 반영)
+        var total = 0, hasAny = false;
         lots.forEach(function(lot) {
             var merged = getLotData(blockName, lot.lotName);
-            var blockType = lot.feature.properties.blockType || '미상';
-            var area = (merged.customArea > 0) ? merged.customArea : lot.area;
-            total += (merged.loadKw !== null && merged.loadKw !== undefined)
-                ? (parseFloat(merged.loadKw) || 0)
-                : 0;
+            if (merged.loadKw !== null && merged.loadKw !== undefined) {
+                total += parseFloat(merged.loadKw) || 0;
+                hasAny = true;
+            }
         });
-        return total;
+        if (hasAny) return total;
+        // 로트 미입력 시 블록 수동 입력값 사용 (공급률만 적용한 경우 대비)
+        if (blockData.blockTotalKw > 0) return parseFloat(blockData.blockTotalKw);
+        return 0;
     }
 
     // 블록 집계 상태: 전체완료(1) > 일부완료(-2) > 미송전(2) > 미입력(99) > 무부하(3)
@@ -1598,13 +1600,13 @@
         var blockData = getSafeData(blockName) || {};
         var bSupplyRate = blockData.supplyRate !== undefined ? parseInt(blockData.supplyRate) : 0;
 
-        // 개별 로트 kW 합산 → 디폴트 총 수요전력
+        // 블록 수동 입력값 우선 표시 (재배분 참조용), 없으면 로트 합산
         var lotKwSum = 0;
         lots.forEach(function(lot) {
             var d = getLotData(blockName, lot.lotName);
             if (d.loadKw !== null && d.loadKw !== undefined) lotKwSum += parseFloat(d.loadKw) || 0;
         });
-        var defaultTotalKw = lotKwSum > 0 ? lotKwSum : (blockData.blockTotalKw || '');
+        var defaultTotalKw = (blockData.blockTotalKw > 0) ? blockData.blockTotalKw : (lotKwSum > 0 ? lotKwSum : '');
 
         document.getElementById('blockBatchTitle').innerText = blockName + '  (' + lotPanelBlockType + ')';
         document.getElementById('blockBatchSubtitle').innerText = lots.length + '개 로트 · 현재 공급률 ' + bSupplyRate + '%';
@@ -1660,35 +1662,17 @@
         var bSs = document.getElementById('lotBatchSs').value.trim();
         var bDl = document.getElementById('lotBatchDl').value.trim();
 
-        // 블록 키에 저장 (totalKw, 공급률)
+        // 블록 키에 참조값 저장 (kW 배분은 ⊞ 버튼에서만)
         var blockData = getSafeData(lotPanelBlockName) || {};
         if (!isNaN(totalKw) && totalKw > 0) blockData.blockTotalKw = totalKw;
         if (supplyRate !== null) blockData.supplyRate = supplyRate;
         setSafeData(lotPanelBlockName, blockData);
 
         var msgs = [];
-        var doKw = !isNaN(totalKw) && totalKw > 0 && lots.length > 0;
-        // 공급률 blank이고 totalKw 입력 시 → 100% 기본값
-        var sr = (supplyRate !== null) ? supplyRate : (blockData.supplyRate !== undefined ? parseInt(blockData.supplyRate) : (doKw ? 100 : 0));
-        if (doKw && supplyRate === null && !blockData.supplyRate) { blockData.supplyRate = 100; setSafeData(lotPanelBlockName, blockData); }
-
-        // 블록 전체 면적 합산
-        var blockTotalArea = 0;
-        lots.forEach(function(lot) {
-            var m = getLotData(lotPanelBlockName, lot.lotName);
-            blockTotalArea += (m.customArea > 0 ? m.customArea : (lot.area || 0));
-        });
-
-        // 각 로트에 직접 저장
+        // 공급률/상태/변전소/선로만 각 로트에 적용 (수요전력 배분은 별도 ⊞ 버튼)
         lots.forEach(function(lot) {
             var key = getLotKey(lotPanelBlockName, lot.lotName);
             var ex = getSafeData(key) || {};
-            if (doKw && blockTotalArea > 0) {
-                var m = getLotData(lotPanelBlockName, lot.lotName);
-                var lotArea = (m.customArea > 0 ? m.customArea : (lot.area || 0));
-                ex.loadKw = Math.round(totalKw * (sr / 100) * (lotArea / blockTotalArea) * 10) / 10;
-                ex.manualKw = true;
-            }
             if (bStatus !== '') ex.status = parseInt(bStatus);
             if (bSs !== '') ex.ssName = bSs;
             if (bDl !== '') ex.dlName = bDl;
@@ -1697,7 +1681,6 @@
         if (bSs !== '') trackRecentValue('ss', bSs);
         if (bDl !== '') trackRecentValue('dl', bDl);
 
-        if (doKw) msgs.push('면적비례 kW 배분 (블록' + totalKw.toLocaleString() + 'kW × ' + sr + '%)');
         if (supplyRate !== null) msgs.push('공급률 ' + supplyRate + '%');
         if (bStatus !== '') msgs.push('상태: ' + getStatusText(parseInt(bStatus)));
         if (bSs !== '') msgs.push('변전소: ' + bSs);
@@ -1707,6 +1690,47 @@
         if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
         var preview = document.getElementById('lotBatchPreview');
         if (preview) preview.innerText = msgs.length ? '✓ ' + msgs.join(' · ') + ' 적용 완료' : '변경 없음';
+    }
+
+    function distributeLotKw() {
+        if (!lotPanelBlockName) return;
+        var lots = blockLotsIndex.get(lotPanelBlockName) || [];
+        var totalKw = parseFloat(document.getElementById('lotBatchTotalKw').value);
+        if (isNaN(totalKw) || totalKw <= 0) { alert('수요전력(kW)을 먼저 입력해주세요.'); return; }
+        if (lots.length === 0) { alert('로트가 없는 블록입니다.'); return; }
+
+        var hasExistingKw = lots.some(function(lot) {
+            var d = getLotData(lotPanelBlockName, lot.lotName);
+            return d.loadKw !== null && d.loadKw !== undefined && parseFloat(d.loadKw) > 0;
+        });
+        if (hasExistingKw && !confirm('로트에 이미 수요전력이 입력되어 있습니다.\n덮어쓰시겠습니까?')) return;
+
+        var blockTotalArea = 0;
+        lots.forEach(function(lot) {
+            var m = getLotData(lotPanelBlockName, lot.lotName);
+            blockTotalArea += (m.customArea > 0 ? m.customArea : (lot.area || 0));
+        });
+        if (blockTotalArea <= 0) { alert('면적 정보가 없어 배분할 수 없습니다.'); return; }
+
+        var blockData = getSafeData(lotPanelBlockName) || {};
+        blockData.blockTotalKw = totalKw;
+        setSafeData(lotPanelBlockName, blockData);
+
+        // 순수 수요전력만 면적비례 배분 (공급률 미포함)
+        lots.forEach(function(lot) {
+            var key = getLotKey(lotPanelBlockName, lot.lotName);
+            var ex = getSafeData(key) || {};
+            var m = getLotData(lotPanelBlockName, lot.lotName);
+            var lotArea = (m.customArea > 0 ? m.customArea : (lot.area || 0));
+            ex.loadKw = Math.round(totalKw * (lotArea / blockTotalArea) * 10) / 10;
+            ex.manualKw = true;
+            setSafeData(key, ex);
+        });
+
+        mapRefreshStyles(); renderUnconfirmedList();
+        if (document.getElementById('dashboardOverlay').style.display === 'flex') buildAndRenderDashboard();
+        var preview = document.getElementById('lotBatchPreview');
+        if (preview) preview.innerText = '✓ ' + totalKw.toLocaleString() + 'kW → ' + lots.length + '개 로트 면적비례 배분 완료';
     }
 
     function updateLotStatusInline(blockName, lotName, newStatusStr) {
