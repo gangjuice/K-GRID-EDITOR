@@ -1367,6 +1367,12 @@
         return dl ? (ss ? ss + ' ' + dl : dl) : '';
     }
 
+    var LEGEND_PALETTE = [
+        '#e53935','#d81b60','#8e24aa','#5e35b1',
+        '#3949ab','#1e88e5','#039be5','#00acc1',
+        '#00897b','#43a047','#7cb342','#f9a825',
+        '#fb8c00','#f4511e','#6d4c41','#546e7a'
+    ];
     function getRandomColorFor(name) {
         if (!name || name.trim() === "" || name.trim() === "미정") return "#e0e0e0";
         if (!colorMapDict[name]) {
@@ -1374,14 +1380,10 @@
             for (var i = 0; i < name.length; i++) {
                 h = (((h << 5) + h) ^ name.charCodeAt(i)) >>> 0;
             }
-            // murmur-style avalanche: 인접한 이름도 완전히 다른 색상으로 분산
             h ^= (h >>> 16); h = Math.imul(h, 0x85ebca6b) >>> 0;
             h ^= (h >>> 13); h = Math.imul(h, 0xc2b2ae35) >>> 0;
             h ^= (h >>> 16);
-            var hue = h % 360;
-            var sat = 62 + ((h >>> 8) % 18);  // 62~79%
-            var lit = 36 + ((h >>> 17) % 16); // 36~51%
-            colorMapDict[name] = 'hsl(' + hue + ',' + sat + '%,' + lit + '%)';
+            colorMapDict[name] = LEGEND_PALETTE[h % LEGEND_PALETTE.length];
         }
         return colorMapDict[name];
     }
@@ -2231,8 +2233,9 @@
                     }
                 });
             }
-            var sorted = Array.from(nameSet).sort();
-            if (mode === 'dl') sorted.reverse();
+            var sorted = Array.from(nameSet).sort(function(a, b) {
+                return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+            });
             sorted.forEach(name => {
                 let color = getRandomColorFor(name); let activeClass = (highlightedLegend === name) ? 'active' : '';
                 listHtml += `<div class="legend-item ${activeClass}" onclick="toggleHighlightLegend('${jsArg(name)}')">
