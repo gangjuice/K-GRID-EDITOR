@@ -339,6 +339,7 @@
             <table style="width:100%; border-collapse:collapse; font-size:11px;">
                 <thead style="position:sticky; top:0; z-index:1; background:#f1f3f4; color:#5f6368;">
                     <tr>
+                        <th style="width:18px; padding:0;" title="드래그하여 아래 로트에 자동채우기"></th>
                         <th style="padding:6px 8px; text-align:left; font-weight:600; white-space:nowrap;">로트명</th>
                         <th style="padding:6px 8px; text-align:right; font-weight:600; white-space:nowrap;">면적m²</th>
                         <th style="padding:6px 8px; text-align:right; font-weight:600; white-space:nowrap;">kW</th>
@@ -1355,13 +1356,18 @@
     function getRandomColorFor(name) {
         if (!name || name.trim() === "" || name.trim() === "미정") return "#e0e0e0";
         if (!colorMapDict[name]) {
-            // 이름 기반 결정적 hash → 재시작해도 색상 동일
-            let hash = 0;
-            for (let i = 0; i < name.length; i++) { hash = ((hash << 5) - hash) + name.charCodeAt(i); hash |= 0; }
-            let hue = Math.abs(hash) % 360;
-            let sat = 65 + (Math.abs(hash >> 8) % 20);
-            let lit = 40 + (Math.abs(hash >> 16) % 20);
-            colorMapDict[name] = `hsl(${hue}, ${sat}%, ${lit}%)`;
+            var h = 5381;
+            for (var i = 0; i < name.length; i++) {
+                h = (((h << 5) + h) ^ name.charCodeAt(i)) >>> 0;
+            }
+            // murmur-style avalanche: 인접한 이름도 완전히 다른 색상으로 분산
+            h ^= (h >>> 16); h = Math.imul(h, 0x85ebca6b) >>> 0;
+            h ^= (h >>> 13); h = Math.imul(h, 0xc2b2ae35) >>> 0;
+            h ^= (h >>> 16);
+            var hue = h % 360;
+            var sat = 62 + ((h >>> 8) % 18);  // 62~79%
+            var lit = 36 + ((h >>> 17) % 16); // 36~51%
+            colorMapDict[name] = 'hsl(' + hue + ',' + sat + '%,' + lit + '%)';
         }
         return colorMapDict[name];
     }
@@ -1493,6 +1499,10 @@
     // ★ Lot 패널
     var lotPanelBlockName = null;
     var lotPanelBlockType = null;
+    var lotDragActive = false;
+    var lotDragSourceIdx = -1;
+    var lotDragTargetIdx = -1;
+    var lotDragLots = [];
 
     function openLotPanel(blockName, blockType) {
         lotPanelBlockName = blockName;
@@ -1507,7 +1517,7 @@
 
         var tbody = document.getElementById('lotPanelBody');
         if (lots.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="padding:20px; text-align:center; color:#888;">lotName 정보 없음</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="padding:20px; text-align:center; color:#888;">lotName 정보 없음</td></tr>';
         } else {
             tbody.innerHTML = lots.map(function(lot, idx) {
                 var merged = getLotData(blockName, lot.lotName);
@@ -1521,7 +1531,9 @@
                     return '<option value="'+o[0]+'"'+(lotSt===o[0]?' selected':'')+'>'+o[1]+'</option>';
                 }).join('');
                 var safeLot = (lot.lotName||'').replace(/"/g,'&quot;');
-                return '<tr style="border-bottom:1px solid #f1f3f4;" data-lot-row="'+safeLot+'">'
+                return '<tr style="border-bottom:1px solid #f1f3f4;" data-lot-row="'+safeLot+'" data-lot-area="'+area+'" data-lot-idx-tr="'+idx+'" onmouseover="lotDragOver('+idx+')">'
+                    + '<td style="padding:3px 4px; text-align:center; cursor:ns-resize; user-select:none; color:#bbb; font-size:13px; line-height:1;" '
+                    + 'data-drag-handle="1" onmousedown="lotDragStart(event,'+idx+')">⋮⋮</td>'
                     + '<td style="padding:6px 8px;font-weight:600;white-space:nowrap;">' + ((lot.lotName && lot.lotName !== lotPanelBlockName) ? escapeHtml(lot.lotName) : '-') + '</td>'
                     + '<td style="padding:6px 8px;text-align:right;color:#5f6368;font-size:11px;">' + Math.round(area).toLocaleString() + '</td>'
                     + '<td style="padding:6px 8px;text-align:right;">'
@@ -1549,6 +1561,8 @@
         }
 
         document.getElementById('lotPanelTotalRow').innerText = '블록 합계 예측수요전력: ' + totalKw.toLocaleString() + ' kW';
+
+        lotDragLots = lots;
 
         var panel = document.getElementById('lotPanel');
         panel.style.display = 'flex';
@@ -1703,6 +1717,74 @@
         inputs.forEach(function(inp) { sum += parseFloat(inp.value) || 0; });
         var totalRow = document.getElementById('lotPanelTotalRow');
         if (totalRow) totalRow.innerText = '블록 합계 예측수요전력: ' + sum.toLocaleString() + ' kW';
+    }
+
+    // ★ 드래그 자동채우기 (로트 패널)
+    function lotDragStart(e, idx) {
+        e.preventDefault();
+        lotDragActive = true;
+        lotDragSourceIdx = idx;
+        lotDragTargetIdx = idx;
+        _lotHighlightRange(idx, idx);
+    }
+
+    function lotDragOver(idx) {
+        if (!lotDragActive || idx === lotDragTargetIdx) return;
+        lotDragTargetIdx = idx;
+        _lotHighlightRange(lotDragSourceIdx, lotDragTargetIdx);
+    }
+
+    function _lotHighlightRange(from, to) {
+        var tbody = document.getElementById('lotPanelBody');
+        if (!tbody) return;
+        var lo = Math.min(from, to), hi = Math.max(from, to);
+        tbody.querySelectorAll('tr[data-lot-row]').forEach(function(tr, i) {
+            tr.style.background = (i >= lo && i <= hi) ? '#e8f0fe' : '';
+        });
+    }
+
+    function _lotDragApplyFill() {
+        if (lotDragSourceIdx < 0 || lotDragSourceIdx === lotDragTargetIdx) return;
+        var lo = Math.min(lotDragSourceIdx, lotDragTargetIdx);
+        var hi = Math.max(lotDragSourceIdx, lotDragTargetIdx);
+        var srcLot = lotDragLots[lotDragSourceIdx];
+        if (!srcLot) return;
+        var safeSrc = (srcLot.lotName || '').replace(/"/g, '&quot;');
+
+        var srcKwInp = document.querySelector('#lotPanelBody input[data-lot-idx="' + lotDragSourceIdx + '"]');
+        var srcStSel = document.querySelector('#lotPanelBody select[data-lot-name="' + safeSrc + '"][data-lot-status]');
+        var srcSsInp = document.querySelector('#lotPanelBody input[data-lot-name="' + safeSrc + '"][data-lot-ss]');
+        var srcDlInp = document.querySelector('#lotPanelBody input[data-lot-name="' + safeSrc + '"][data-lot-dl]');
+
+        var srcKw = srcKwInp ? (parseFloat(srcKwInp.value) || 0) : 0;
+        var srcAreaRow = document.querySelector('#lotPanelBody tr[data-lot-idx-tr="' + lotDragSourceIdx + '"]');
+        var srcArea = srcAreaRow ? (parseFloat(srcAreaRow.getAttribute('data-lot-area')) || 0) : 0;
+        var srcStatus = srcStSel ? srcStSel.value : null;
+        var srcSs = srcSsInp ? srcSsInp.value : '';
+        var srcDl = srcDlInp ? srcDlInp.value : '';
+
+        for (var i = lo; i <= hi; i++) {
+            if (i === lotDragSourceIdx) continue;
+            var tgtLot = lotDragLots[i];
+            if (!tgtLot) continue;
+            var safeTgt = (tgtLot.lotName || '').replace(/"/g, '&quot;');
+            var tgtRow = document.querySelector('#lotPanelBody tr[data-lot-idx-tr="' + i + '"]');
+            var tgtArea = tgtRow ? (parseFloat(tgtRow.getAttribute('data-lot-area')) || 0) : 0;
+
+            var kwInp = document.querySelector('#lotPanelBody input[data-lot-idx="' + i + '"]');
+            if (kwInp) {
+                kwInp.value = (srcArea > 0 && srcKw > 0)
+                    ? Math.round(srcKw * (tgtArea / srcArea) * 10) / 10
+                    : srcKw;
+            }
+            var stSel = document.querySelector('#lotPanelBody select[data-lot-name="' + safeTgt + '"][data-lot-status]');
+            if (stSel && srcStatus !== null) stSel.value = srcStatus;
+            var ssInp = document.querySelector('#lotPanelBody input[data-lot-name="' + safeTgt + '"][data-lot-ss]');
+            if (ssInp) ssInp.value = srcSs;
+            var dlInp = document.querySelector('#lotPanelBody input[data-lot-name="' + safeTgt + '"][data-lot-dl]');
+            if (dlInp) dlInp.value = srcDl;
+        }
+        updateLotPanelSum();
     }
 
     function saveLotPanelData() {
@@ -2110,6 +2192,7 @@
             });
         } else {
             // 변전소별/배전선로별 범례 — 블록 키 + 로트 키 모두 수집
+            colorMapDict = {}; // 캐시 초기화 (색상 팔레트 변경 반영)
             let nameSet = new Set();
             let drawnBlocks = new Set();
             if (globalGeoJson && globalGeoJson.features) {
@@ -3419,6 +3502,14 @@
         closeModals();
     }
     document.addEventListener('contextmenu', event => event.preventDefault());
+
+    document.addEventListener('mouseup', function() {
+        if (!lotDragActive) return;
+        lotDragActive = false;
+        _lotDragApplyFill();
+        var tbody = document.getElementById('lotPanelBody');
+        if (tbody) tbody.querySelectorAll('tr[data-lot-row]').forEach(function(tr) { tr.style.background = ''; });
+    });
 
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
