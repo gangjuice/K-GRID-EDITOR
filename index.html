@@ -1934,11 +1934,13 @@
             var blockType = getBlockType(f.properties);
             if (isAutoNoLoad(blockType) && isNoLoadLocked) return; // 무부하 잠금 필지 제외
             var parcelId = getBlockName(f.properties);
-            if (selectedParcels.has(parcelId)) return;
+            var lotName = f.properties.lotName || '';
+            var lotKey = getLotKey(parcelId, lotName);
+            if (selectedParcels.has(lotKey)) return;
             var ctr = getVisualCentroid(f.geometry.coordinates);
             if (!ctr) return;
             if (ctr.lat >= latMin && ctr.lat <= latMax && ctr.lng >= lngMin && ctr.lng <= lngMax) {
-                selectedParcels.add(parcelId); added++;
+                selectedParcels.add(lotKey); added++;
             }
         });
         if (added > 0) {
