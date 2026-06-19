@@ -987,7 +987,7 @@
         var data = getLotData(parcelId, lotName); // 로트 오버라이드 → 블록 기본값
         var isNoLoad = isAutoNoLoad(blockType);
         var status = (data && data.status !== undefined) ? parseInt(data.status) : (isNoLoad ? 3 : 99);
-        let isSelected = selectedParcels.has(parcelId);
+        let isSelected = selectedParcels.has(getLotKey(parcelId, feature.properties.lotName || '')) || selectedParcels.has(parcelId);
         let baseOp = Math.max(0, 1.0 - (globalOpacity / 100));
         let strokeC = isSelected ? '#d93025' : '#333';
         let strokeW = isSelected ? 4 : 1.5;
@@ -1053,7 +1053,7 @@
                     if (isAutoNoLoad(blockType) && isNoLoadLocked) return;
                     var ctrl = e.originalEvent && (e.originalEvent.ctrlKey || e.originalEvent.metaKey);
                     if (ctrl || isMultiSelectMode) {
-                        toggleParcelSelection(parcelId);
+                        toggleParcelSelection(getLotKey(parcelId, feature.properties.lotName || ''));
                         return;
                     }
                     openLotPanel(parcelId, blockType);
@@ -1987,7 +1987,7 @@
         var isNoLoad = isAutoNoLoad(blockType);
         var status = (data && data.status !== undefined) ? parseInt(data.status) : (isNoLoad ? 3 : 99);
 
-        let isSelected = selectedParcels.has(parcelId);
+        let isSelected = selectedParcels.has(getLotKey(parcelId, lotName)) || selectedParcels.has(parcelId);
         let baseOp = Math.max(0, 1.0 - (globalOpacity / 100));
         let strokeC = isSelected ? '#d93025' : '#333';
         let strokeW = isSelected ? 4 : 1.5;
@@ -2135,7 +2135,8 @@
         var oe = e.domEvent || e.pointerEvent;
         var ctrl = oe && (oe.ctrlKey || oe.metaKey);
         if (ctrl || isMultiSelectMode) {
-            toggleParcelSelection(parcelId);
+            var nLotName = e.feature.getProperty('lotName') || '';
+            toggleParcelSelection(getLotKey(parcelId, nLotName));
             return;
         }
 
@@ -2453,7 +2454,15 @@
     }
 
     function toggleParcelSel(bName, isChecked) {
-        if (isChecked) selectedParcels.add(bName); else selectedParcels.delete(bName);
+        var lots = blockLotsIndex.get(bName) || [];
+        if (lots.length > 0) {
+            lots.forEach(function(lot) {
+                var lKey = getLotKey(bName, lot.lotName);
+                if (isChecked) selectedParcels.add(lKey); else selectedParcels.delete(lKey);
+            });
+        } else {
+            if (isChecked) selectedParcels.add(bName); else selectedParcels.delete(bName);
+        }
         mapRefreshStyles(); updateSelectionUI(); renderDashboard();
     }
 
@@ -2624,7 +2633,7 @@
             let lots = (blockLotsIndex.get(d.name) || []).slice().sort(function(a,b){
                 return (a.lotName||'').localeCompare(b.lotName||'', undefined, {numeric:true,sensitivity:'base'});
             });
-            let isSel = selectedParcels.has(d.name);
+            let isSel = selectedParcels.has(d.name) || (blockLotsIndex.get(d.name)||[]).some(function(lot){ return selectedParcels.has(getLotKey(d.name, lot.lotName)); });
             let lotCount = lots.length;
             let isExpanded = expandedBlocks.has(d.name) || (fltLot !== '' && lotCount > 0); // 로트 검색 시 자동 펼침
             let safeN = jsArg(d.name);
@@ -3291,23 +3300,35 @@
     function saveBatchData() {
         let bSs = document.getElementById('batchSs').value.trim(); let bDl = document.getElementById('batchDl').value.trim(); let bMemo = document.getElementById('batchMemo').value.trim();
         if(bSs === '' && bDl === '' && bMemo === '') { showAlert('입력된 내용이 없어 기존 데이터가 유지됩니다.'); closeModals(); return; }
-        selectedParcels.forEach(blockName => {
-            var lots = blockLotsIndex.get(blockName) || [];
-            if (lots.length > 0) {
-                lots.forEach(function(lot) {
-                    var key = getLotKey(blockName, lot.lotName);
-                    var d = getSafeData(key) || {};
-                    if (bSs !== "") d.ssName = bSs;
-                    if (bDl !== "") d.dlName = bDl;
-                    if (bMemo !== "") d.memo = bMemo;
-                    setSafeData(key, d);
-                });
-            } else {
-                var d = getSafeData(blockName) || {};
+        selectedParcels.forEach(entry => {
+            var isLotKey = entry.indexOf('___') !== -1;
+            if (isLotKey) {
+                // 로트 단위 key (blockName___lotName)
+                var d = getSafeData(entry) || {};
                 if (bSs !== "") d.ssName = bSs;
                 if (bDl !== "") d.dlName = bDl;
                 if (bMemo !== "") d.memo = bMemo;
-                setSafeData(blockName, d);
+                setSafeData(entry, d);
+            } else {
+                // 블록 단위 key (대시보드 블록 체크박스)
+                var blockName = entry;
+                var lots = blockLotsIndex.get(blockName) || [];
+                if (lots.length > 0) {
+                    lots.forEach(function(lot) {
+                        var key = getLotKey(blockName, lot.lotName);
+                        var d = getSafeData(key) || {};
+                        if (bSs !== "") d.ssName = bSs;
+                        if (bDl !== "") d.dlName = bDl;
+                        if (bMemo !== "") d.memo = bMemo;
+                        setSafeData(key, d);
+                    });
+                } else {
+                    var d = getSafeData(blockName) || {};
+                    if (bSs !== "") d.ssName = bSs;
+                    if (bDl !== "") d.dlName = bDl;
+                    if (bMemo !== "") d.memo = bMemo;
+                    setSafeData(blockName, d);
+                }
             }
         });
         if (bSs !== "") trackRecentValue('ss', bSs);
