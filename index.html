@@ -1000,7 +1000,7 @@
                 }
             }
         } else if (viewMode === 'ss' || viewMode === 'dl') {
-            let targetName = viewMode === 'ss' ? (data.ssName || "") : (data.dlName || "");
+            let targetName = getLegendKey(data, viewMode);
             let color = getRandomColorFor(targetName);
             fillColor = color;
             fillOp = (color === "#e0e0e0") ? Math.max(baseOp - 0.2, 0.1) : baseOp;
@@ -1351,6 +1351,12 @@
         if (rate < 0) rate = 0; if (rate > 100) rate = 100;
         let r = Math.round(255 - (255 - 65) * (rate / 100)); let g = Math.round(255 - (255 - 105) * (rate / 100)); let b = Math.round(255 - (255 - 225) * (rate / 100));
         return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    function getLegendKey(d, mode) {
+        if (mode === 'ss') return (d.ssName || '').trim();
+        var dl = (d.dlName || '').trim(), ss = (d.ssName || '').trim();
+        return dl ? (ss ? ss + ' ' + dl : dl) : '';
     }
 
     function getRandomColorFor(name) {
@@ -1990,7 +1996,7 @@
             }
             return { fillColor: getGradientColor(rate), fillOpacity: targetOp, strokeColor: strokeC, strokeWeight: strokeW };
         } else if (viewMode === 'ss' || viewMode === 'dl') {
-            let targetName = viewMode === 'ss' ? (data.ssName||"") : (data.dlName||"");
+            let targetName = getLegendKey(data, viewMode);
             let color = getRandomColorFor(targetName);
             let targetOp = (color === "#e0e0e0") ? Math.max(baseOp - 0.2, 0.1) : baseOp;
             if (highlightedLegend !== null) {
@@ -2204,18 +2210,19 @@
                     if (lots.length === 0) {
                         // 단일 로트: 블록 키에서 읽기
                         var d = getSafeData(bName);
-                        if (d) { var v = (mode === 'ss') ? d.ssName : d.dlName; if (v && v.trim()) nameSet.add(v.trim()); }
+                        if (d) { var v = getLegendKey(d, mode); if (v) nameSet.add(v); }
                     } else {
                         // 다중 로트: 각 로트 키에서 읽기 (getLotData로 병합)
                         lots.forEach(function(lot) {
                             var d = getLotData(bName, lot.lotName);
-                            var v = (mode === 'ss') ? d.ssName : d.dlName;
-                            if (v && v.trim()) nameSet.add(v.trim());
+                            var v = getLegendKey(d, mode); if (v) nameSet.add(v);
                         });
                     }
                 });
             }
-            Array.from(nameSet).sort().forEach(name => {
+            var sorted = Array.from(nameSet).sort();
+            if (mode === 'dl') sorted.reverse();
+            sorted.forEach(name => {
                 let color = getRandomColorFor(name); let activeClass = (highlightedLegend === name) ? 'active' : '';
                 listHtml += `<div class="legend-item ${activeClass}" onclick="toggleHighlightLegend('${jsArg(name)}')">
                     <div class="legend-color" style="background:${color};"></div>${escapeHtml(name)}
