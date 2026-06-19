@@ -1353,16 +1353,37 @@
         return `rgb(${r}, ${g}, ${b})`;
     }
 
+    var LEGEND_PALETTE = [
+        '#e53935', // Red
+        '#1e88e5', // Blue
+        '#43a047', // Green
+        '#f4511e', // Deep Orange
+        '#8e24aa', // Purple
+        '#00acc1', // Cyan
+        '#fb8c00', // Amber
+        '#3949ab', // Indigo
+        '#00897b', // Teal
+        '#c0ca33', // Lime
+        '#d81b60', // Pink
+        '#039be5', // Light Blue
+        '#7cb342', // Light Green
+        '#ff7043', // Orange
+        '#5e35b1', // Deep Purple
+        '#546e7a', // Blue Grey
+    ];
+
     function getRandomColorFor(name) {
         if (!name || name.trim() === "" || name.trim() === "미정") return "#e0e0e0";
         if (!colorMapDict[name]) {
-            // 이름 기반 결정적 hash → 재시작해도 색상 동일
-            let hash = 0;
-            for (let i = 0; i < name.length; i++) { hash = ((hash << 5) - hash) + name.charCodeAt(i); hash |= 0; }
-            let hue = Math.abs(hash) % 360;
-            let sat = 65 + (Math.abs(hash >> 8) % 20);
-            let lit = 40 + (Math.abs(hash >> 16) % 20);
-            colorMapDict[name] = `hsl(${hue}, ${sat}%, ${lit}%)`;
+            var h = 5381;
+            for (var i = 0; i < name.length; i++) {
+                h = (((h << 5) + h) ^ name.charCodeAt(i)) >>> 0;
+            }
+            // murmur-style avalanche: ensures adjacent hash values → distant palette indices
+            h ^= (h >>> 16); h = Math.imul(h, 0x85ebca6b) >>> 0;
+            h ^= (h >>> 13); h = Math.imul(h, 0xc2b2ae35) >>> 0;
+            h ^= (h >>> 16);
+            colorMapDict[name] = LEGEND_PALETTE[h % LEGEND_PALETTE.length];
         }
         return colorMapDict[name];
     }
@@ -2187,6 +2208,7 @@
             });
         } else {
             // 변전소별/배전선로별 범례 — 블록 키 + 로트 키 모두 수집
+            colorMapDict = {}; // 캐시 초기화 (색상 팔레트 변경 반영)
             let nameSet = new Set();
             let drawnBlocks = new Set();
             if (globalGeoJson && globalGeoJson.features) {
