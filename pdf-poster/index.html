@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PDF → 인트라넷 게시글 자동 작성</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Malgun Gothic','맑은 고딕',system-ui,sans-serif;font-size:13px;
+     background:#f0f2f5;color:#222;min-height:100vh;display:flex;flex-direction:column}
+
+/* ── header ── */
+header{background:#1e3a5f;color:#fff;padding:12px 20px;display:flex;align-items:center;gap:12px;
+       box-shadow:0 2px 6px rgba(0,0,0,.3)}
+header h1{font-size:16px;font-weight:700;letter-spacing:.5px}
+header span{font-size:11px;opacity:.7;margin-left:auto}
+
+/* ── tabs ── */
+.tabs{display:flex;background:#2a4a72;padding:0 20px}
+.tab-btn{padding:10px 22px;color:#adc8e8;border:none;background:none;cursor:pointer;
+          font-size:13px;border-bottom:3px solid transparent;transition:.2s}
+.tab-btn:hover{color:#fff}
+.tab-btn.active{color:#fff;border-bottom-color:#5bc0eb;font-weight:700}
+
+/* ── main layout ── */
+main{flex:1;display:flex;overflow:hidden}
+.tab-panel{display:none;flex:1;overflow:auto;padding:20px}
+.tab-panel.active{display:flex;flex-direction:column;gap:16px}
+
+/* ── card ── */
+.card{background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);overflow:hidden}
+.card-head{background:#f7f9fc;border-bottom:1px solid #e8edf3;padding:10px 16px;
+           font-weight:700;font-size:12px;color:#3a5a80;display:flex;align-items:center;gap:8px}
+.card-body{padding:16px}
+
+/* ── drop zone ── */
+.drop-zone{border:2px dashed #b0c4de;border-radius:8px;padding:36px 20px;text-align:center;
+           cursor:pointer;transition:.2s;color:#7090b0}
+.drop-zone:hover,.drop-zone.drag-over{border-color:#5bc0eb;background:#f0f8ff;color:#2a4a72}
+.drop-zone svg{display:block;margin:0 auto 10px}
+
+/* ── file list ── */
+.file-list{list-style:none;display:flex;flex-direction:column;gap:6px}
+.file-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;
+           background:#f7f9fc;border:1px solid #e8edf3}
+.file-item .fname{flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-item .badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:700}
+.badge-wait{background:#fff3cd;color:#856404}
+.badge-ok  {background:#d1f5ea;color:#0a6640}
+.badge-err {background:#fde8e8;color:#991b1b}
+.badge-proc{background:#dbeafe;color:#1e40af}
+.btn-rm{background:none;border:none;cursor:pointer;color:#999;font-size:15px;line-height:1}
+.btn-rm:hover{color:#e33}
+
+/* ── extracted fields ── */
+.fields-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:700px){.fields-grid{grid-template-columns:1fr}}
+.field-group{display:flex;flex-direction:column;gap:4px}
+.field-group label{font-size:11px;font-weight:700;color:#4a6080}
+.field-group input,.field-group textarea,.field-group select{
+  border:1px solid #d0d8e4;border-radius:5px;padding:7px 9px;font-size:12px;
+  font-family:inherit;background:#fff;transition:.15s}
+.field-group input:focus,.field-group textarea:focus{border-color:#5bc0eb;outline:none;
+  box-shadow:0 0 0 2px rgba(91,192,235,.15)}
+.field-group textarea{resize:vertical;min-height:80px}
+.field-group .hint{font-size:10px;color:#999}
+
+/* ── buttons ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:6px;
+     border:none;cursor:pointer;font-size:12px;font-weight:700;transition:.15s}
+.btn-primary{background:#1e3a5f;color:#fff}
+.btn-primary:hover{background:#2a4a72}
+.btn-primary:disabled{background:#93a8c0;cursor:not-allowed}
+.btn-success{background:#0a6640;color:#fff}
+.btn-success:hover{background:#0d7a4d}
+.btn-success:disabled{background:#78b099;cursor:not-allowed}
+.btn-outline{background:#fff;color:#3a5a80;border:1px solid #b0c4de}
+.btn-outline:hover{background:#f0f5fb}
+.btn-danger{background:#991b1b;color:#fff}
+.btn-danger:hover{background:#b22020}
+.btn-sm{padding:5px 11px;font-size:11px}
+
+/* ── log ── */
+.log-box{background:#1a1a2e;border-radius:6px;padding:12px;min-height:90px;max-height:200px;
+         overflow-y:auto;font-family:monospace;font-size:11px}
+.log-entry{padding:2px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.log-entry.info{color:#7ec8e3}
+.log-entry.ok  {color:#6fcf97}
+.log-entry.err {color:#f87171}
+.log-entry.warn{color:#f6c05c}
+
+/* ── settings form ── */
+.settings-section{margin-bottom:20px}
+.settings-section h3{font-size:12px;font-weight:700;color:#3a5a80;margin-bottom:10px;
+                      padding-bottom:4px;border-bottom:2px solid #e8edf3}
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:700px){.settings-grid{grid-template-columns:1fr}}
+.full-col{grid-column:1/-1}
+.password-wrap{position:relative}
+.password-wrap input{width:100%;padding-right:32px}
+.eye-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);
+         background:none;border:none;cursor:pointer;color:#888;font-size:14px}
+
+/* ── status bar ── */
+.status-bar{background:#1e3a5f;color:#adc8e8;font-size:11px;padding:5px 20px;
+            display:flex;align-items:center;gap:10px}
+.status-dot{width:7px;height:7px;border-radius:50%;background:#6fcf97}
+.status-dot.warn{background:#f6c05c}
+.status-dot.err{background:#f87171}
+
+/* ── raw text preview ── */
+.raw-preview{background:#f7f9fc;border:1px solid #e8edf3;border-radius:5px;padding:10px;
+             font-size:11px;color:#555;max-height:160px;overflow-y:auto;
+             white-space:pre-wrap;font-family:monospace}
+
+/* ── post tab ── */
+.post-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.post-header select{flex:1;border:1px solid #d0d8e4;border-radius:5px;padding:6px 8px;
+                    font-size:12px;font-family:inherit}
+
+/* ── switch ── */
+.switch-wrap{display:flex;align-items:center;gap:8px;font-size:12px}
+.switch{position:relative;width:36px;height:20px}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:#ccc;border-radius:20px;cursor:pointer;transition:.3s}
+.slider::before{content:'';position:absolute;width:14px;height:14px;left:3px;bottom:3px;
+                background:#fff;border-radius:50%;transition:.3s}
+input:checked+.slider{background:#1e3a5f}
+input:checked+.slider::before{transform:translateX(16px)}
+
+/* ── tooltip ── */
+[data-tip]{position:relative}
+[data-tip]::after{content:attr(data-tip);position:absolute;bottom:110%;left:50%;transform:translateX(-50%);
+                  background:#222;color:#fff;font-size:10px;padding:4px 8px;border-radius:4px;
+                  white-space:nowrap;pointer-events:none;opacity:0;transition:.2s;z-index:99}
+[data-tip]:hover::after{opacity:1}
+
+/* ── divider ── */
+hr{border:none;border-top:1px solid #e8edf3;margin:6px 0}
+
+/* ── row ── */
+.row{display:flex;gap:10px;align-items:center}
+.row.wrap{flex-wrap:wrap}
+.spacer{flex:1}
+
+/* ── progress bar ── */
+.progress-bar{height:4px;background:#e8edf3;border-radius:2px;overflow:hidden}
+.progress-fill{height:100%;background:#5bc0eb;border-radius:2px;transition:width .4s}
+
+/* ── badge count ── */
+.count-badge{background:#5bc0eb;color:#fff;font-size:10px;padding:1px 6px;border-radius:10px}
+
+/* ── scrollbar ── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:#f0f2f5}
+::-webkit-scrollbar-thumb{background:#b0c4de;border-radius:3px}
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+    <polyline points="14 2 14 8 20 8"/>
+    <line x1="16" y1="13" x2="8" y2="13"/>
+    <line x1="16" y1="17" x2="8" y2="17"/>
+    <polyline points="10 9 9 9 8 9"/>
+  </svg>
+  <h1>PDF → 인트라넷 게시글 자동 작성</h1>
+  <span id="versionTag">v1.0.0</span>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('pdf')">📄 PDF 처리</button>
+  <button class="tab-btn" onclick="switchTab('post')">✍️ 게시글 작성</button>
+  <button class="tab-btn" onclick="switchTab('settings')">⚙️ 설정</button>
+</div>
+
+<main>
+
+<!-- ══════════════════ TAB 1: PDF 처리 ══════════════════ -->
+<div id="tab-pdf" class="tab-panel active">
+
+  <div class="card">
+    <div class="card-head">
+      📂 PDF 파일 불러오기
+    </div>
+    <div class="card-body">
+      <div class="drop-zone" id="dropZone" onclick="clickSelectPdf()">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">PDF 파일을 드래그하거나 클릭해서 선택</div>
+        <div style="font-size:11px">여러 파일을 한 번에 선택할 수 있습니다</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="fileListCard" style="display:none">
+    <div class="card-head">
+      📋 선택된 파일 <span class="count-badge" id="fileCount">0</span>
+      <span class="spacer"></span>
+      <button class="btn btn-outline btn-sm" onclick="clearAllFiles()">전체 삭제</button>
+      <button class="btn btn-primary btn-sm" onclick="parseAllPdfs()" id="btnParseAll">모두 분석</button>
+    </div>
+    <div class="card-body">
+      <ul class="file-list" id="fileList"></ul>
+    </div>
+  </div>
+
+  <div class="card" id="fieldsCard" style="display:none">
+    <div class="card-head">
+      🔍 추출된 필드
+      <span class="spacer"></span>
+      <select id="fileSelector" onchange="selectFile(this.value)"
+              style="border:1px solid #d0d8e4;border-radius:5px;padding:4px 8px;font-size:11px">
+      </select>
+    </div>
+    <div class="card-body">
+      <div class="fields-grid">
+        <div class="field-group">
+          <label>제목</label>
+          <input type="text" id="fTitle" placeholder="제목을 입력하세요">
+        </div>
+        <div class="field-group">
+          <label>문서번호</label>
+          <input type="text" id="fDocNum" placeholder="문서번호">
+        </div>
+        <div class="field-group">
+          <label>날짜</label>
+          <input type="text" id="fDate" placeholder="YYYY-MM-DD 또는 원본 형식">
+        </div>
+        <div class="field-group">
+          <label>기간 (선택)</label>
+          <input type="text" id="fPeriod" placeholder="시작일 ~ 종료일">
+        </div>
+        <div class="field-group" style="grid-column:1/-1">
+          <label>본문 내용 (게시글에 사용할 내용)</label>
+          <textarea id="fContent" rows="5" placeholder="추출된 본문 또는 직접 입력"></textarea>
+        </div>
+      </div>
+      <hr style="margin:12px 0">
+      <details>
+        <summary style="font-size:11px;color:#888;cursor:pointer">원본 텍스트 보기</summary>
+        <div class="raw-preview" id="rawText" style="margin-top:8px"></div>
+      </details>
+      <hr style="margin:12px 0">
+      <div class="row">
+        <div class="progress-bar" style="flex:1"><div class="progress-fill" id="extractProgress" style="width:0"></div></div>
+        <button class="btn btn-outline btn-sm" onclick="reExtractFields()">다시 추출</button>
+        <button class="btn btn-primary btn-sm" onclick="saveFieldsAndGoPost()">게시글 작성 →</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /tab-pdf -->
+
+<!-- ══════════════════ TAB 2: 게시글 작성 ══════════════════ -->
+<div id="tab-post" class="tab-panel">
+
+  <div class="card">
+    <div class="card-head">✍️ 게시글 내용 확인 및 작성</div>
+    <div class="card-body">
+      <div class="fields-grid">
+        <div class="field-group">
+          <label>제목 <span style="color:#e33">*</span></label>
+          <input type="text" id="pTitle" placeholder="게시글 제목">
+        </div>
+        <div class="field-group">
+          <label>문서번호</label>
+          <input type="text" id="pDocNum" placeholder="문서번호 (선택)">
+        </div>
+        <div class="field-group">
+          <label>날짜</label>
+          <input type="text" id="pDate" placeholder="날짜 (선택)">
+        </div>
+        <div class="field-group">
+          <label>기간</label>
+          <input type="text" id="pPeriod" placeholder="기간 (선택)">
+        </div>
+        <div class="field-group" style="grid-column:1/-1">
+          <label>본문 내용 <span style="color:#e33">*</span></label>
+          <textarea id="pContent" rows="8" placeholder="게시글 본문"></textarea>
+          <div class="hint" id="contentHint">※ 설정의 콘텐츠 템플릿이 적용됩니다</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">🚀 인트라넷 게시</div>
+    <div class="card-body">
+      <div class="row wrap" style="gap:10px;margin-bottom:12px">
+        <div class="switch-wrap">
+          <label class="switch"><input type="checkbox" id="chkShowBrowser"><span class="slider"></span></label>
+          브라우저 표시 (디버그용)
+        </div>
+        <div class="switch-wrap">
+          <label class="switch"><input type="checkbox" id="chkAutoSubmit"><span class="slider"></span></label>
+          자동 제출 (클릭 없이 바로 게시)
+        </div>
+        <span class="spacer"></span>
+        <button class="btn btn-outline btn-sm" onclick="openIntranetPreview()"
+                data-tip="인트라넷 게시판을 브라우저로 열어봄">🌐 인트라넷 미리보기</button>
+        <button class="btn btn-success" onclick="doPost()" id="btnPost">
+          ✔ 게시글 작성하기
+        </button>
+      </div>
+      <div class="card-head" style="background:transparent;border:none;padding:0 0 6px 0;font-size:11px">
+        작업 로그
+      </div>
+      <div class="log-box" id="logBox">
+        <div class="log-entry info">✦ 대기 중 — PDF를 불러오고 게시글 내용을 확인한 뒤 [게시글 작성하기]를 클릭하세요.</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /tab-post -->
+
+<!-- ══════════════════ TAB 3: 설정 ══════════════════ -->
+<div id="tab-settings" class="tab-panel">
+
+  <div class="card">
+    <div class="card-head">🌐 인트라넷 URL 설정</div>
+    <div class="card-body">
+      <div class="settings-section">
+        <div class="settings-grid">
+          <div class="field-group full-col">
+            <label>로그인 페이지 URL <span style="color:#e33">*</span></label>
+            <input type="url" id="sLoginUrl" placeholder="https://intranet.company.com/login">
+          </div>
+          <div class="field-group full-col">
+            <label>게시글 작성 페이지 URL <span style="color:#e33">*</span></label>
+            <input type="url" id="sPostUrl" placeholder="https://intranet.company.com/board/write">
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>🔐 로그인 정보</h3>
+        <div class="settings-grid">
+          <div class="field-group">
+            <label>아이디</label>
+            <input type="text" id="sLoginId" placeholder="인트라넷 아이디">
+          </div>
+          <div class="field-group">
+            <label>비밀번호</label>
+            <div class="password-wrap">
+              <input type="password" id="sLoginPw" placeholder="비밀번호">
+              <button class="eye-btn" onclick="togglePw(this)">👁</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>🔧 로그인 폼 CSS 셀렉터</h3>
+        <p style="font-size:11px;color:#888;margin-bottom:8px">
+          인트라넷 페이지를 열고 F12 개발자 도구에서 요소 검사 후 CSS 셀렉터를 입력하세요
+        </p>
+        <div class="settings-grid">
+          <div class="field-group">
+            <label>아이디 입력 필드</label>
+            <input type="text" id="sSelLoginUser" placeholder="예: #userId, input[name='id']">
+          </div>
+          <div class="field-group">
+            <label>비밀번호 입력 필드</label>
+            <input type="text" id="sSelLoginPass" placeholder="예: #password, input[type='password']">
+          </div>
+          <div class="field-group full-col">
+            <label>로그인 버튼</label>
+            <input type="text" id="sSelLoginBtn" placeholder="예: button[type='submit'], #loginBtn">
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>📝 게시글 폼 CSS 셀렉터</h3>
+        <div class="settings-grid">
+          <div class="field-group">
+            <label>제목 입력 필드 <span style="color:#e33">*</span></label>
+            <input type="text" id="sSelTitle" placeholder="예: #boardTitle, input[name='title']">
+          </div>
+          <div class="field-group">
+            <label>내용 입력 필드 <span style="color:#e33">*</span></label>
+            <input type="text" id="sSelContent" placeholder="예: #boardContent, textarea[name='content']">
+          </div>
+          <div class="field-group">
+            <label>날짜 필드 (선택)</label>
+            <input type="text" id="sSelDate" placeholder="예: input[name='date']">
+          </div>
+          <div class="field-group">
+            <label>문서번호 필드 (선택)</label>
+            <input type="text" id="sSelDocNum" placeholder="예: input[name='docNum']">
+          </div>
+          <div class="field-group full-col">
+            <label>제출 버튼 (자동 제출 시 필요)</label>
+            <input type="text" id="sSelSubmit" placeholder="예: button[type='submit'], #writeBtn">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">🧪 PDF 필드 추출 패턴 (정규식)</div>
+    <div class="card-body">
+      <p style="font-size:11px;color:#888;margin-bottom:12px">
+        PDF 텍스트에서 필드를 추출할 때 사용하는 정규식 패턴입니다. 기본값을 사용하거나 PDF 양식에 맞게 수정하세요.
+      </p>
+      <div class="settings-grid">
+        <div class="field-group">
+          <label>제목 추출 패턴</label>
+          <input type="text" id="sPatTitle" placeholder="예: 제목\s*:?\s*(.+)">
+          <span class="hint">첫 번째 캡처 그룹이 제목으로 사용됩니다</span>
+        </div>
+        <div class="field-group">
+          <label>문서번호 추출 패턴</label>
+          <input type="text" id="sPatDocNum" placeholder="예: 문서번호\s*:?\s*(\S+)">
+        </div>
+        <div class="field-group">
+          <label>날짜 추출 패턴</label>
+          <input type="text" id="sPatDate" placeholder="예: (\d{4}[.\s년]\s*\d{1,2}[.\s월]\s*\d{1,2})">
+        </div>
+        <div class="field-group">
+          <label>기간 추출 패턴</label>
+          <input type="text" id="sPatPeriod" placeholder="예: (\d{4}\.\d{1,2}\.\d{1,2})\s*~\s*(\d{4}\.\d{1,2}\.\d{1,2})">
+        </div>
+        <div class="field-group full-col">
+          <label>콘텐츠 템플릿</label>
+          <textarea id="sContentTemplate" rows="4"
+            placeholder="예: 제목: {title}&#10;문서번호: {docNum}&#10;날짜: {date}&#10;&#10;{fullText}"></textarea>
+          <span class="hint">사용 가능한 변수: {title} {docNum} {date} {period} {fullText}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">🔁 기타 옵션</div>
+    <div class="card-body" style="display:flex;gap:24px;flex-wrap:wrap">
+      <div class="switch-wrap">
+        <label class="switch"><input type="checkbox" id="sAutoSubmit"><span class="slider"></span></label>
+        기본 자동 제출
+      </div>
+      <div class="switch-wrap">
+        <label class="switch"><input type="checkbox" id="sShowBrowser"><span class="slider"></span></label>
+        기본 브라우저 표시
+      </div>
+    </div>
+  </div>
+
+  <div class="row" style="justify-content:flex-end;gap:8px">
+    <button class="btn btn-outline" onclick="resetDefaults()">기본값 복원</button>
+    <button class="btn btn-primary" onclick="saveSettings()">💾 설정 저장</button>
+  </div>
+
+  <div id="settingsMsg" style="font-size:12px;text-align:right;color:#0a6640;min-height:18px"></div>
+
+</div><!-- /tab-settings -->
+
+</main>
+
+<div class="status-bar">
+  <div class="status-dot" id="statusDot"></div>
+  <span id="statusText">준비</span>
+</div>
+
+<script>
+/* ════════════════════════════════════════════════════════
+   STATE
+════════════════════════════════════════════════════════ */
+var files = []       /* [{path, name, status:'wait'|'parsing'|'ok'|'err', text, fields}] */
+var cfg   = {}
+var activeFileIdx = -1
+
+/* ════════════════════════════════════════════════════════
+   INIT
+════════════════════════════════════════════════════════ */
+;(async function init() {
+  cfg = await window.api.loadConfig()
+  applyConfigToForm()
+  setupDropZone()
+})()
+
+/* ════════════════════════════════════════════════════════
+   TABS
+════════════════════════════════════════════════════════ */
+function switchTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'))
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'))
+  document.getElementById('tab-' + name).classList.add('active')
+  event.currentTarget.classList.add('active')
+  if (name === 'post') syncPostFields()
+}
+
+/* ════════════════════════════════════════════════════════
+   DROP ZONE
+════════════════════════════════════════════════════════ */
+function setupDropZone() {
+  var dz = document.getElementById('dropZone')
+  dz.addEventListener('dragover',  function(e){ e.preventDefault(); dz.classList.add('drag-over') })
+  dz.addEventListener('dragleave', function()  { dz.classList.remove('drag-over') })
+  dz.addEventListener('drop', function(e) {
+    e.preventDefault(); dz.classList.remove('drag-over')
+    var droppedPaths = []
+    for (var i=0;i<e.dataTransfer.files.length;i++) {
+      var f = e.dataTransfer.files[i]
+      if (f.name.toLowerCase().endsWith('.pdf')) droppedPaths.push(f.path)
+    }
+    if (droppedPaths.length) addFiles(droppedPaths)
+  })
+}
+
+async function clickSelectPdf() {
+  var paths = await window.api.selectPdfFiles()
+  if (paths.length) addFiles(paths)
+}
+
+function addFiles(paths) {
+  paths.forEach(function(p) {
+    var name = p.replace(/\\/g,'/').split('/').pop()
+    if (files.find(function(f){ return f.path === p })) return
+    files.push({ path:p, name:name, status:'wait', text:'', fields:{} })
+  })
+  renderFileList()
+}
+
+function removeFile(idx) {
+  files.splice(idx, 1)
+  if (activeFileIdx >= files.length) activeFileIdx = files.length - 1
+  renderFileList()
+  if (files.length > 0 && activeFileIdx >= 0) {
+    selectFile(activeFileIdx)
+  } else {
+    document.getElementById('fieldsCard').style.display = 'none'
+  }
+}
+
+function clearAllFiles() {
+  files = []; activeFileIdx = -1
+  renderFileList()
+  document.getElementById('fieldsCard').style.display = 'none'
+}
+
+function renderFileList() {
+  var n = files.length
+  document.getElementById('fileCount').textContent = n
+  document.getElementById('fileListCard').style.display = n ? '' : 'none'
+
+  var ul = document.getElementById('fileList')
+  ul.innerHTML = ''
+  files.forEach(function(f, i) {
+    var badges = { wait:'badge-wait', parsing:'badge-proc', ok:'badge-ok', err:'badge-err' }
+    var labels = { wait:'대기', parsing:'분석 중', ok:'완료', err:'오류' }
+    ul.innerHTML += '<li class="file-item" onclick="selectFile('+i+')" style="cursor:pointer">'
+      + '<span style="font-size:16px">📄</span>'
+      + '<span class="fname" title="'+esc(f.path)+'">'+esc(f.name)+'</span>'
+      + '<span class="badge '+badges[f.status]+'">'+labels[f.status]+'</span>'
+      + '<button class="btn-rm" onclick="event.stopPropagation();removeFile('+i+')" title="삭제">×</button>'
+      + '</li>'
+  })
+
+  var sel = document.getElementById('fileSelector')
+  sel.innerHTML = files.map(function(f,i){ return '<option value="'+i+'">'+esc(f.name)+'</option>' }).join('')
+}
+
+/* ════════════════════════════════════════════════════════
+   PDF PARSING
+════════════════════════════════════════════════════════ */
+async function parseAllPdfs() {
+  if (!files.length) return
+  setStatus('분석 중...', 'warn')
+  for (var i=0; i<files.length; i++) {
+    files[i].status = 'parsing'; renderFileList()
+    var r = await window.api.parsePdf(files[i].path)
+    if (r.success) {
+      files[i].text   = r.text
+      files[i].fields = extractFields(r.text)
+      files[i].status = 'ok'
+    } else {
+      files[i].status  = 'err'
+      files[i].errMsg  = r.error
+    }
+    renderFileList()
+    updateProgress(i+1, files.length)
+  }
+  setStatus('분석 완료', 'ok')
+  selectFile(0)
+  document.getElementById('fieldsCard').style.display = ''
+}
+
+function updateProgress(done, total) {
+  var pct = total ? Math.round(done/total*100) : 0
+  document.getElementById('extractProgress').style.width = pct + '%'
+}
+
+/* ════════════════════════════════════════════════════════
+   FIELD EXTRACTION
+════════════════════════════════════════════════════════ */
+var DEFAULT_PATTERNS = {
+  title:   '제목\\s*:?\\s*(.+)',
+  docNum:  '(?:문서번호|기안번호|공문번호)\\s*:?\\s*([^\\s\\n]+)',
+  date:    '(\\d{4}[.년]\\s*\\d{1,2}[.월]\\s*\\d{1,2})',
+  period:  '(\\d{4}\\.\\d{1,2}\\.\\d{1,2})\\s*[~∼]\\s*(\\d{4}\\.\\d{1,2}\\.\\d{1,2})'
+}
+
+function getPat(key) {
+  return (cfg['pat_' + key] || '').trim() || DEFAULT_PATTERNS[key] || ''
+}
+
+function matchPat(text, key) {
+  var pat = getPat(key)
+  if (!pat) return ''
+  try {
+    var m = text.match(new RegExp(pat, 'm'))
+    if (!m) return ''
+    if (m.length >= 3 && key === 'period') return m[1] + ' ~ ' + m[2]
+    return (m[1] || m[0] || '').trim()
+  } catch(e) { return '' }
+}
+
+function extractFields(text) {
+  return {
+    title:  matchPat(text, 'title'),
+    docNum: matchPat(text, 'docNum'),
+    date:   matchPat(text, 'date'),
+    period: matchPat(text, 'period')
+  }
+}
+
+function applyTemplate(fields, fullText) {
+  var tpl = (cfg.contentTemplate || '').trim()
+  if (!tpl) return fullText.trim()
+  return tpl
+    .replace(/{title}/g,   fields.title   || '')
+    .replace(/{docNum}/g,  fields.docNum  || '')
+    .replace(/{date}/g,    fields.date    || '')
+    .replace(/{period}/g,  fields.period  || '')
+    .replace(/{fullText}/g, fullText.trim())
+}
+
+/* ════════════════════════════════════════════════════════
+   FILE SELECTOR
+════════════════════════════════════════════════════════ */
+function selectFile(idx) {
+  idx = parseInt(idx)
+  if (idx < 0 || idx >= files.length) return
+  activeFileIdx = idx
+  document.getElementById('fileSelector').value = idx
+  document.getElementById('fieldsCard').style.display = ''
+
+  var f = files[idx]
+  document.getElementById('rawText').textContent = f.text || ''
+  if (f.fields) {
+    document.getElementById('fTitle').value  = f.fields.title  || ''
+    document.getElementById('fDocNum').value = f.fields.docNum || ''
+    document.getElementById('fDate').value   = f.fields.date   || ''
+    document.getElementById('fPeriod').value = f.fields.period || ''
+    document.getElementById('fContent').value = applyTemplate(f.fields, f.text)
+  }
+}
+
+function reExtractFields() {
+  if (activeFileIdx < 0) return
+  var f = files[activeFileIdx]
+  if (!f.text) { alert('먼저 PDF를 분석하세요.'); return }
+  f.fields = extractFields(f.text)
+  selectFile(activeFileIdx)
+}
+
+function saveFieldsAndGoPost() {
+  if (activeFileIdx >= 0) saveCurFields()
+  syncPostFields()
+  document.querySelectorAll('.tab-btn').forEach(function(b,i){ b.classList.toggle('active', i===1) })
+  document.querySelectorAll('.tab-panel').forEach(function(p,i){ p.classList.toggle('active', i===1) })
+}
+
+function saveCurFields() {
+  if (activeFileIdx < 0) return
+  files[activeFileIdx].fields = {
+    title:  document.getElementById('fTitle').value,
+    docNum: document.getElementById('fDocNum').value,
+    date:   document.getElementById('fDate').value,
+    period: document.getElementById('fPeriod').value
+  }
+  files[activeFileIdx].contentOverride = document.getElementById('fContent').value
+}
+
+/* ════════════════════════════════════════════════════════
+   POST TAB SYNC
+════════════════════════════════════════════════════════ */
+function syncPostFields() {
+  var f = activeFileIdx >= 0 ? files[activeFileIdx] : null
+  if (!f) return
+  saveCurFields()
+  var fields = f.fields || {}
+  document.getElementById('pTitle').value   = fields.title  || ''
+  document.getElementById('pDocNum').value  = fields.docNum || ''
+  document.getElementById('pDate').value    = fields.date   || ''
+  document.getElementById('pPeriod').value  = fields.period || ''
+  document.getElementById('pContent').value = f.contentOverride || applyTemplate(fields, f.text || '')
+
+  document.getElementById('chkAutoSubmit').checked  = !!cfg.autoSubmit
+  document.getElementById('chkShowBrowser').checked = !!cfg.showBrowser
+}
+
+/* ════════════════════════════════════════════════════════
+   POST TO INTRANET
+════════════════════════════════════════════════════════ */
+async function doPost() {
+  if (!cfg.loginUrl) { alert('설정에서 로그인 URL을 먼저 입력하세요.'); switchTabByName('settings'); return }
+  if (!cfg.postUrl)  { alert('설정에서 게시글 작성 URL을 먼저 입력하세요.'); switchTabByName('settings'); return }
+
+  var title   = document.getElementById('pTitle').value.trim()
+  var content = document.getElementById('pContent').value.trim()
+  if (!title)   { alert('제목을 입력하세요.'); return }
+  if (!content) { alert('내용을 입력하세요.'); return }
+
+  var postData = {
+    title:   title,
+    docNum:  document.getElementById('pDocNum').value.trim(),
+    date:    document.getElementById('pDate').value.trim(),
+    period:  document.getElementById('pPeriod').value.trim(),
+    content: content
+  }
+
+  var runCfg = Object.assign({}, cfg, {
+    showBrowser: document.getElementById('chkShowBrowser').checked,
+    autoSubmit:  document.getElementById('chkAutoSubmit').checked
+  })
+
+  var btn = document.getElementById('btnPost')
+  btn.disabled = true
+  setStatus('게시글 작성 중...', 'warn')
+  addLog('게시글 작성을 시작합니다...', 'info')
+  addLog('로그인 URL: ' + cfg.loginUrl, 'info')
+
+  var r = await window.api.postToIntranet({ config: runCfg, postData: postData })
+
+  if (r.success) {
+    addLog('✔ 게시글 작성 완료!', 'ok')
+    setStatus('게시 완료', 'ok')
+  } else {
+    addLog('✘ 오류: ' + r.error, 'err')
+    setStatus('오류 발생', 'err')
+  }
+  btn.disabled = false
+}
+
+function openIntranetPreview() {
+  var url = cfg.postUrl || cfg.loginUrl || ''
+  if (!url) { alert('설정에서 인트라넷 URL을 먼저 입력하세요.'); return }
+  window.api.openIntranetBrowser(url)
+}
+
+/* ════════════════════════════════════════════════════════
+   SETTINGS
+════════════════════════════════════════════════════════ */
+function applyConfigToForm() {
+  setVal('sLoginUrl',       cfg.loginUrl       || '')
+  setVal('sPostUrl',        cfg.postUrl        || '')
+  setVal('sLoginId',        cfg.loginId        || '')
+  setVal('sLoginPw',        cfg.loginPw        || '')
+  setVal('sSelLoginUser',   cfg.selLoginUser   || '')
+  setVal('sSelLoginPass',   cfg.selLoginPass   || '')
+  setVal('sSelLoginBtn',    cfg.selLoginBtn    || '')
+  setVal('sSelTitle',       cfg.selTitle       || '')
+  setVal('sSelContent',     cfg.selContent     || '')
+  setVal('sSelDate',        cfg.selDate        || '')
+  setVal('sSelDocNum',      cfg.selDocNum      || '')
+  setVal('sSelSubmit',      cfg.selSubmit      || '')
+  setVal('sPatTitle',       cfg.pat_title      || '')
+  setVal('sPatDocNum',      cfg.pat_docNum     || '')
+  setVal('sPatDate',        cfg.pat_date       || '')
+  setVal('sPatPeriod',      cfg.pat_period     || '')
+  setVal('sContentTemplate',cfg.contentTemplate|| '')
+  document.getElementById('sAutoSubmit').checked  = !!cfg.autoSubmit
+  document.getElementById('sShowBrowser').checked = !!cfg.showBrowser
+}
+
+async function saveSettings() {
+  cfg = {
+    loginUrl:        getVal('sLoginUrl'),
+    postUrl:         getVal('sPostUrl'),
+    loginId:         getVal('sLoginId'),
+    loginPw:         getVal('sLoginPw'),
+    selLoginUser:    getVal('sSelLoginUser'),
+    selLoginPass:    getVal('sSelLoginPass'),
+    selLoginBtn:     getVal('sSelLoginBtn'),
+    selTitle:        getVal('sSelTitle'),
+    selContent:      getVal('sSelContent'),
+    selDate:         getVal('sSelDate'),
+    selDocNum:       getVal('sSelDocNum'),
+    selSubmit:       getVal('sSelSubmit'),
+    pat_title:       getVal('sPatTitle'),
+    pat_docNum:      getVal('sPatDocNum'),
+    pat_date:        getVal('sPatDate'),
+    pat_period:      getVal('sPatPeriod'),
+    contentTemplate: getVal('sContentTemplate'),
+    autoSubmit:      document.getElementById('sAutoSubmit').checked,
+    showBrowser:     document.getElementById('sShowBrowser').checked
+  }
+  await window.api.saveConfig(cfg)
+  var msg = document.getElementById('settingsMsg')
+  msg.textContent = '✔ 저장 완료 (' + new Date().toLocaleTimeString() + ')'
+  setTimeout(function(){ msg.textContent = '' }, 3000)
+}
+
+function resetDefaults() {
+  if (!confirm('모든 설정을 초기화할까요?')) return
+  cfg = {}
+  applyConfigToForm()
+}
+
+function togglePw(btn) {
+  var inp = btn.previousElementSibling
+  inp.type = inp.type === 'password' ? 'text' : 'password'
+}
+
+/* ════════════════════════════════════════════════════════
+   HELPERS
+════════════════════════════════════════════════════════ */
+function getVal(id)      { return document.getElementById(id).value.trim() }
+function setVal(id, val) { var el = document.getElementById(id); if(el) el.value = val }
+function esc(s)          { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+
+function addLog(msg, type) {
+  var box = document.getElementById('logBox')
+  var el  = document.createElement('div')
+  el.className = 'log-entry ' + (type || 'info')
+  el.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg
+  box.appendChild(el)
+  box.scrollTop = box.scrollHeight
+}
+
+function setStatus(text, type) {
+  document.getElementById('statusText').textContent = text
+  var dot = document.getElementById('statusDot')
+  dot.className = 'status-dot' + (type === 'warn' ? ' warn' : type === 'err' ? ' err' : '')
+}
+
+function switchTabByName(name) {
+  var tabs = ['pdf','post','settings']
+  var idx  = tabs.indexOf(name)
+  var btns = document.querySelectorAll('.tab-btn')
+  var pnls = document.querySelectorAll('.tab-panel')
+  btns.forEach(function(b,i){ b.classList.toggle('active', i===idx) })
+  pnls.forEach(function(p,i){ p.classList.toggle('active', i===idx) })
+}
+</script>
+</body>
+</html>
