@@ -684,6 +684,7 @@
     // 기본 무부하 용도 목록 (rateCategories에서 0인 항목 전체)
     var DEFAULT_NOLOAD_TYPES = ['도로','보행자전용도로','자전거전용도로','주차장','자동차정류장','철도시설용지','녹지','공원','공공공지','광장','하천','변전시설','저류시설','배수시설','유보지'];
     var noloadBlockTypesSet = new Set(DEFAULT_NOLOAD_TYPES);
+    var noloadExcludeSet = new Set(); // 사용자가 명시적으로 제거한 항목 (loadRateDict 자동분류 차단)
     var dashData = [];
     var sortCol = '';
     var sortAsc = true;
@@ -721,6 +722,11 @@
         if (savedNoloadRaw !== null) {
             let savedNoload = tryParseJSON(savedNoloadRaw, DEFAULT_NOLOAD_TYPES);
             noloadBlockTypesSet = new Set(Array.isArray(savedNoload) ? savedNoload : DEFAULT_NOLOAD_TYPES);
+        }
+        let savedExcludeRaw = localStorage.getItem('cfg_noload_exclude');
+        if (savedExcludeRaw !== null) {
+            let savedExclude = tryParseJSON(savedExcludeRaw, []);
+            noloadExcludeSet = new Set(Array.isArray(savedExclude) ? savedExclude : []);
         }
         // savedNoloadRaw === null이면 위에서 초기화한 DEFAULT_NOLOAD_TYPES Set 유지
 
@@ -1312,6 +1318,8 @@
         for (let t of noloadBlockTypesSet) {
             if (blockType.includes(t) || t.includes(blockType)) return true;
         }
+        // 사용자가 명시적으로 제거한 항목은 자동분류 건너뜀
+        if (noloadExcludeSet.has(blockType)) return false;
         // 단위 부하 0인 유형 자동 분류
         let matchedKey = "";
         for (let key in loadRateDict) {
@@ -3060,12 +3068,14 @@
         var val = (input.value || '').trim();
         if (!val) return;
         noloadBlockTypesSet.add(val);
+        noloadExcludeSet.delete(val); // 다시 추가 시 제외 목록에서 제거
         input.value = '';
         renderNoloadChips();
     }
 
     function removeNoloadType(typeName) {
         noloadBlockTypesSet.delete(typeName);
+        noloadExcludeSet.add(typeName); // 자동분류도 차단
         renderNoloadChips();
     }
 
@@ -3120,6 +3130,7 @@
         document.getElementById('opValStr').innerText = '50%';
         document.getElementById('set-lockToggle').checked = true;
         noloadBlockTypesSet = new Set(DEFAULT_NOLOAD_TYPES);
+        noloadExcludeSet = new Set();
         renderNoloadChips();
     }
 
@@ -3129,6 +3140,7 @@
         localStorage.setItem('cfg_opacity', globalOpacity);
         localStorage.setItem('cfg_lock', isNoLoadLocked);
         localStorage.setItem('cfg_noload_types', JSON.stringify(Array.from(noloadBlockTypesSet)));
+        localStorage.setItem('cfg_noload_exclude', JSON.stringify(Array.from(noloadExcludeSet)));
         mapRefreshStyles(); closeModals();
     }
 
